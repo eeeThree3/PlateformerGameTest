@@ -25,6 +25,7 @@ public class PlayerDash : MonoBehaviour
     [SerializeField] private bool cameraRelative = true;
     [SerializeField] private bool stopGravityDuringDash = true;
     [SerializeField] private LayerMask groundLayer;
+    [SerializeField] private LayerMask wallLayer;
     [SerializeField] private Transform groundCheck;
 
     public bool IsDashing => isDashing;
@@ -78,12 +79,16 @@ public class PlayerDash : MonoBehaviour
             groundLayer = LayerMask.GetMask("Ground");
         }
 
+        if (wallLayer.value == 0)
+        {
+            wallLayer = LayerMask.GetMask("Wall");
+        }
+
         if (spriteRenderer == null)
         {
             spriteRenderer = GetComponentInChildren<SpriteRenderer>();
         }
 
-        Debug.Log($"[Dash] Awake - inputHandler={inputHandler != null}, CharacterController={characterController != null}, Rigidbody2D={rigidbody2D != null}, Camera={cameraTransform != null}");
     }
 
     private void OnEnable()
@@ -91,11 +96,9 @@ public class PlayerDash : MonoBehaviour
         if (inputHandler != null)
         {
             inputHandler.DashPressed += HandleDash;
-            Debug.Log("[Dash] subscribed to DashPressed event");
         }
         else
         {
-            Debug.LogWarning("[Dash] inputHandler is null in OnEnable");
         }
     }
 
@@ -104,10 +107,10 @@ public class PlayerDash : MonoBehaviour
         if (inputHandler != null)
         {
             inputHandler.DashPressed -= HandleDash;
-            Debug.Log("[Dash] unsubscribed from DashPressed event");
         }
 
         RestoreIgnoredCollisions();
+        ResetDashPhysics();
         isDashing = false;
     }
 
@@ -123,67 +126,54 @@ public class PlayerDash : MonoBehaviour
             }
         }
 
-        if (inputHandler != null && inputHandler.MoveInput.sqrMagnitude > 0.01f)
+        if (inputHandler != null && Mathf.Abs(inputHandler.MoveInput.x) > 0.01f)
         {
-            lastMoveDirection = inputHandler.MoveInput.normalized;
+            lastMoveDirection = new Vector2(Mathf.Sign(inputHandler.MoveInput.x), 0f);
         }
 
         if (inputHandler == null && Keyboard.current != null && Keyboard.current.zKey.wasPressedThisFrame)
         {
-            Debug.Log("[Dash] fallback Z key pressed this frame");
             HandleDash();
         }
     }
 
     private void HandleDash()
     {
-        Debug.Log($"[Dash] HandleDash called - isDashing={isDashing}, cooldown={cooldownTimer}, inputHandler={(inputHandler != null)}");
-
         if (playerAttack != null && playerAttack.IsAttacking)
         {
-            Debug.Log("[Dash] rejected: attacking");
             return;
         }
         
         if (isDashing)
         {
-            Debug.Log("[Dash] rejected: already dashing");
             return;
         }
 
         if (cooldownTimer > 0f)
         {
-            Debug.Log($"[Dash] rejected: cooldown active ({cooldownTimer:F2}s)");
             return;
         }
 
         if (inputHandler == null)
         {
             inputHandler = GetComponent<PlayerInputHandler>();
-            Debug.Log($"[Dash] inputHandler auto-found: {inputHandler != null}");
         }
 
         Vector2 input = lastMoveDirection;
-        Debug.Log($"[Dash] dash direction uses lastMoveDirection = {input}");
 
         if (input.sqrMagnitude < 0.01f)
         {
             input = Vector2.right;
-            Debug.Log("[Dash] still no direction, fallback to right");
         }
 
         lastMoveDirection = input.normalized;
 
         Vector3 dashDirection = GetDashDirection(input);
-        Debug.Log($"[Dash] dashDirection computed = {dashDirection}");
-
         if (dashDirection.sqrMagnitude < 0.01f)
         {
-            Debug.Log("[Dash] rejected: dashDirection is zero");
             return;
         }
 
-        Debug.Log($"[Dash] accepted: starting coroutine with direction={dashDirection}");
         StartCoroutine(DashRoutine(dashDirection));
     }
 
@@ -191,21 +181,20 @@ public class PlayerDash : MonoBehaviour
     {
         Vector2 moveDir = input.sqrMagnitude > 0.01f ? input.normalized : lastMoveDirection.normalized;
 
-        bool onSlope = IsOnSlope();
-        if (onSlope)
-        {
-            Vector2 slopeDirection = GetSlopeDirection();
-            if (slopeDirection.sqrMagnitude > 0.01f)
-            {
-                float sign = Mathf.Sign(moveDir.x == 0f ? lastMoveDirection.x : moveDir.x);
-                if (sign == 0f)
-                {
-                    sign = 1f;
-                }
+        Vector2 slopeDirection = GetSlopeDirection();
+        bool isGroundedForSlopeDash = IsGroundedForDash()
+            && (rigidbody2D == null || rigidbody2D.linearVelocity.y <= 0.05f);
 
-                Vector2 desired = slopeDirection * sign;
-                return new Vector3(desired.x, desired.y, 0f).normalized;
+        if (isGroundedForSlopeDash && slopeDirection.sqrMagnitude > 0.01f)
+        {
+            float sign = Mathf.Sign(moveDir.x == 0f ? lastMoveDirection.x : moveDir.x);
+            if (sign == 0f)
+            {
+                sign = 1f;
             }
+
+            Vector2 desired = slopeDirection * sign;
+            return new Vector3(desired.x, desired.y, 0f).normalized;
         }
 
         if (rigidbody2D != null)
@@ -234,24 +223,6 @@ public class PlayerDash : MonoBehaviour
         }
 
         return new Vector3(moveDir.x, 0f, moveDir.y).normalized;
-    }
-
-    private bool IsOnSlope()
-    {
-        if (groundCheck == null)
-        {
-            return false;
-        }
-
-        RaycastHit2D hit = Physics2D.Raycast(groundCheck.position, Vector2.down, 0.7f, groundLayer);
-        if (hit.collider == null)
-        {
-            return false;
-        }
-
-        Vector2 normal = hit.normal.normalized;
-        float angle = Vector2.Angle(Vector2.up, normal);
-        return angle > 2f && angle < 80f;
     }
 
     private Vector2 GetSlopeDirection()
@@ -295,23 +266,31 @@ public class PlayerDash : MonoBehaviour
         float ghostSpawnInterval = 0.03f;
         float nextGhostTime = 0f;
 
-        Debug.Log($"[Dash] routine started - direction={direction}, speed={dashSpeed}, duration={dashDuration}");
-
         while (elapsed < dashDuration)
         {
             float deltaTime = Mathf.Min(Time.deltaTime, dashDuration - elapsed);
+
+            if (direction.y > 0f && !IsGroundedForDash())
+            {
+                direction.y = 0f;
+                direction.Normalize();
+
+                if (rigidbody2D != null && stopGravityDuringDash)
+                {
+                    rigidbody2D.gravityScale = originalGravityScale;
+                }
+            }
+
             Vector3 movement = direction * dashSpeed * deltaTime;
 
             if (characterController != null)
             {
                 characterController.Move(movement);
-                Debug.Log($"[Dash] CharacterController.Move({movement})");
             }
             else if (rigidbody2D != null)
             {
                 Vector2 dashVelocity = new Vector2(direction.x, direction.y) * dashSpeed;
                 rigidbody2D.linearVelocity = dashVelocity;
-                Debug.Log($"[Dash] Rigidbody2D velocity set to {rigidbody2D.linearVelocity}");
             }
 
             elapsed += deltaTime;
@@ -331,9 +310,19 @@ public class PlayerDash : MonoBehaviour
         }
 
         RestoreIgnoredCollisions();
+        ResetDashPhysics();
         isDashing = false;
         DashStateChanged?.Invoke(false);
-        Debug.Log("[Dash] routine finished");
+    }
+
+    private bool IsGroundedForDash()
+    {
+        if (groundCheck == null)
+        {
+            return false;
+        }
+
+        return Physics2D.Raycast(groundCheck.position, Vector2.down, 0.7f, groundLayer).collider != null;
     }
 
     private void IgnoreNonGroundCollisions()
@@ -344,7 +333,8 @@ public class PlayerDash : MonoBehaviour
         int playerLayer = gameObject.layer;
         for (int otherLayer = 0; otherLayer < 32; otherLayer++)
         {
-            if ((groundLayer.value & (1 << otherLayer)) != 0)
+            int layerMask = 1 << otherLayer;
+            if ((groundLayer.value & layerMask) != 0 || (wallLayer.value & layerMask) != 0)
                 continue;
 
             originalLayerCollisions[otherLayer] = Physics2D.GetIgnoreLayerCollision(playerLayer, otherLayer);
@@ -362,7 +352,8 @@ public class PlayerDash : MonoBehaviour
         int playerLayer = gameObject.layer;
         for (int otherLayer = 0; otherLayer < 32; otherLayer++)
         {
-            if ((groundLayer.value & (1 << otherLayer)) != 0)
+            int layerMask = 1 << otherLayer;
+            if ((groundLayer.value & layerMask) != 0 || (wallLayer.value & layerMask) != 0)
                 continue;
 
             Physics2D.IgnoreLayerCollision(playerLayer, otherLayer, originalLayerCollisions[otherLayer]);
@@ -374,6 +365,16 @@ public class PlayerDash : MonoBehaviour
     private void OnDestroy()
     {
         RestoreIgnoredCollisions();
+    }
+
+    private void ResetDashPhysics()
+    {
+        if (rigidbody2D == null)
+            return;
+
+        rigidbody2D.linearVelocity = Vector2.zero;
+        rigidbody2D.angularVelocity = 0f;
+        rigidbody2D.gravityScale = originalGravityScale;
     }
 
     private void SpawnDashGhost()

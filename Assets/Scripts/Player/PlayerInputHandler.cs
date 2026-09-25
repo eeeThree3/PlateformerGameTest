@@ -19,6 +19,15 @@ public class PlayerInputHandler : MonoBehaviour
     public event Action AttackPressed;
     public event Action OnAttackInput;
 
+    public void ClearMoveInput()
+    {
+        if (MoveInput == Vector2.zero)
+            return;
+
+        MoveInput = Vector2.zero;
+        MoveInputChanged?.Invoke(MoveInput);
+    }
+
     private void Awake()
     {
         playerInput = GetComponent<PlayerInput>();

@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 
 public class PlayerAttack : MonoBehaviour
@@ -19,9 +20,13 @@ public class PlayerAttack : MonoBehaviour
     [SerializeField] private Transform attackPoint;
     [SerializeField] private float attackRange = 0.6f;
     [SerializeField] private LayerMask enemyLayer;
+    [SerializeField] private HitEffect hitEffect;
 
     private Vector3 attackPointLocalPos;
+    private SpriteRenderer spriteRenderer;
     private bool facingRight = true;
+    private bool pendingFacingRight = true;
+    private bool hasPendingFacingDirection;
     private int attackDirection = 1;
 
     public event Action<int> OnAttackTriggered;
@@ -37,6 +42,8 @@ public class PlayerAttack : MonoBehaviour
 
     private void Awake()
     {
+        spriteRenderer = GetComponent<SpriteRenderer>();
+
         if (attackPoint != null)
         {
             attackPointLocalPos = attackPoint.localPosition;
@@ -57,6 +64,7 @@ public class PlayerAttack : MonoBehaviour
     private void OnDisable()
     {
         inputHandler.OnAttackInput -= HandleAttackInput;
+        inputHandler.MoveInputChanged -= HandleMoveInputChanged;
         playerAnimator.OnComboWindowOpen -= HandleComboWindowOpen;
         playerAnimator.OnAttackAnimationEnd -= HandleAttackAnimationEnd;
     }
@@ -83,6 +91,18 @@ public class PlayerAttack : MonoBehaviour
     {
         if (comboResetRoutine != null)
             StopCoroutine(comboResetRoutine);
+
+        if (inputHandler != null && Mathf.Abs(inputHandler.MoveInput.x) > 0.01f)
+        {
+            pendingFacingRight = inputHandler.MoveInput.x > 0f;
+            hasPendingFacingDirection = true;
+        }
+
+        if (hasPendingFacingDirection)
+        {
+            ApplyFacingDirection(pendingFacingRight);
+            hasPendingFacingDirection = false;
+        }
 
         isAttacking = true;
         comboWindowOpen = false;
@@ -128,15 +148,16 @@ public class PlayerAttack : MonoBehaviour
     
     public void DealDamage()
 {
-    Debug.Log("[Attack] DealDamage called");
-    Collider2D[] hits = Physics2D.OverlapCircleAll(attackPoint.position, attackRange, enemyLayer);
-    Debug.Log($"[Attack] DealDamage called, hits={hits.Length}");
-    
     if (attackPoint == null)
     {
         Debug.LogWarning("[Attack] attackPoint가 연결 안 됨");
         return;
     }
+
+    Debug.Log("[Attack] DealDamage called");
+    Collider2D[] hits = Physics2D.OverlapCircleAll(attackPoint.position, attackRange, enemyLayer);
+    Debug.Log($"[Attack] DealDamage called, hits={hits.Length}");
+    HashSet<IDamageable> damagedTargets = new HashSet<IDamageable>();
 
     int damage = playerStat != null ? playerStat.AttackPower : 10;
 
@@ -147,10 +168,13 @@ public class PlayerAttack : MonoBehaviour
 
     foreach (Collider2D hit in hits)
     {
-        IDamageable damageable = hit.GetComponent<IDamageable>();
-        if (damageable != null)
+        IDamageable damageable = hit.GetComponentInParent<IDamageable>();
+        if (damageable != null && damagedTargets.Add(damageable))
         {
             damageable.TakeDamage(damage); // IDamageable도 float 받으니 int->float 자동 변환됨
+
+            if (hitEffect != null)
+                hitEffect.SpawnAt(hit.bounds.center);
         }
     }
 }
@@ -164,18 +188,35 @@ private void OnDrawGizmosSelected()
 
 private void HandleMoveInputChanged(Vector2 moveInput)
 {
-    if (isAttacking) return;
-    if (moveInput.x == 0f || attackPoint == null) return;
+    if (moveInput.x == 0f) return;
 
     bool shouldFaceRight = moveInput.x > 0f;
+    if (isAttacking)
+    {
+        pendingFacingRight = shouldFaceRight;
+        hasPendingFacingDirection = true;
+        return;
+    }
+
+    ApplyFacingDirection(shouldFaceRight);
+}
+
+private void ApplyFacingDirection(bool shouldFaceRight)
+{
     if (shouldFaceRight == facingRight) return;
 
     facingRight = shouldFaceRight;
 
-    Vector3 pos = attackPointLocalPos;
-    pos.x = facingRight ? Mathf.Abs(pos.x) : -Mathf.Abs(pos.x);
-    attackPoint.localPosition = pos;
+    if (attackPoint != null)
+    {
+        Vector3 pos = attackPointLocalPos;
+        pos.x = facingRight ? Mathf.Abs(pos.x) : -Mathf.Abs(pos.x);
+        attackPoint.localPosition = pos;
+    }
 
-    Debug.Log($"[Attack] facingRight={facingRight}, attackPointLocalPos.x={attackPointLocalPos.x}, new pos.x={pos.x}");
+    if (spriteRenderer != null)
+        spriteRenderer.flipX = !facingRight;
+
+    Debug.Log($"[Attack] facingRight={facingRight}");
 }
 }
