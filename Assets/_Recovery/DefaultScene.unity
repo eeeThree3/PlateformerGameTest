@@ -2503,6 +2503,7 @@ GameObject:
   - component: {fileID: 1074128291}
   - component: {fileID: 1074128290}
   - component: {fileID: 1074128292}
+  - component: {fileID: 1074128293}
   m_Layer: 7
   m_Name: Boss
   m_TagString: Untagged
@@ -2518,7 +2519,7 @@ Rigidbody2D:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1074128282}
-  m_BodyType: 0
+  m_BodyType: 1
   m_Simulated: 1
   m_UseFullKinematicContacts: 0
   m_UseAutoMass: 0
@@ -2680,9 +2681,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3be437d577d41c44b8fcb754b4b2beb0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::BossMove
-  hoverHeight: 0.15
-  hoverSpeed: 1.5
-  startY: 0
 --- !u!114 &1074128289
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2695,6 +2693,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f4124ec35b9fba342b2f1212dd781ac7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::BoasAnimation
+  animator: {fileID: 0}
+  spriteRenderer: {fileID: 0}
+  bossStat: {fileID: 0}
+  walkingParameter: isWalking
+  speedParameter: Speed
+  attackTrigger: Attack
+  hitTrigger: Hit
+  deathTrigger: Death
+  movementThreshold: 0.001
 --- !u!114 &1074128290
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2767,6 +2774,48 @@ Animator:
   m_AllowConstantClipSamplingOptimization: 1
   m_KeepAnimatorStateOnDisable: 0
   m_WriteDefaultValuesOnDisable: 0
+--- !u!114 &1074128293
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1074128282}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b56140046e83dd34b8cc473927f645a9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::BossController
+  animator: {fileID: 0}
+  bossAnimation: {fileID: 0}
+  bossStat: {fileID: 0}
+  playerTransform: {fileID: 0}
+  normalAttackEffect: {fileID: 0}
+  bossSpriteRenderer: {fileID: 0}
+  wallLayer:
+    serializedVersion: 2
+    m_Bits: 0
+  wallCheckRadius: 0.5
+  wallPadding: 0.02
+  battleStartDelay: 2
+  stopDistance: 3
+  teleportDistance: 3
+  moveSpeed: 2
+  idleAfterAttack: 1
+  minPatternInterval: 3
+  maxPatternInterval: 8
+  betweenPatternMoveDuration: 1.5
+  facePlayerInterval: 0.1
+  normalAttackAnimation: BossNormalAttack
+  attackWindow: 0.1
+  attackPathRadius: 0.5
+  effectRadius: 1
+  effectForwardOffset: 1
+  effectFadeDuration: 0.35
+  normalAttackDamage: 20
+  playerLayer:
+    serializedVersion: 2
+    m_Bits: 0
 --- !u!1 &1119554845
 GameObject:
   m_ObjectHideFlags: 0
@@ -3747,6 +3796,7 @@ MonoBehaviour:
   cameraMoveDuration: 1
   cameraOrthographicSize: 8
   bossTimeline: {fileID: 1763623304}
+  bossController: {fileID: 0}
 --- !u!320 &1763623304
 PlayableDirector:
   m_ObjectHideFlags: 0

@@ -155,8 +155,8 @@ public class BossController : MonoBehaviour
         if (isDead || playerTransform == null)
             yield break;
 
-        isAttackPatternPlaying = true;
         FacePlayer();
+        isAttackPatternPlaying = true;
         PlayNormalAttackAnimation();
 
         while (!normalAttackEventTriggered && !isDead && !isCutscenePlaying)
@@ -171,8 +171,21 @@ public class BossController : MonoBehaviour
         }
 
         yield return ExecuteNormalAttack();
+        yield return WaitForNormalAttackAnimation();
         isAttackPatternPlaying = false;
         FacePlayer();
+    }
+
+    private IEnumerator WaitForNormalAttackAnimation()
+    {
+        if (animator == null || string.IsNullOrEmpty(normalAttackAnimation))
+            yield break;
+
+        while (!isDead && !isCutscenePlaying &&
+               animator.GetCurrentAnimatorStateInfo(0).IsName(normalAttackAnimation))
+        {
+            yield return null;
+        }
     }
 
     public void BossNormalAttackFlash()
@@ -367,6 +380,11 @@ public class BossController : MonoBehaviour
     private void UpdateFacingFromMovement()
     {
         float horizontalMovement = transform.position.x - previousPosition.x;
+        previousPosition = transform.position;
+
+        if (isAttackPatternPlaying)
+            return;
+
         if (Mathf.Abs(horizontalMovement) <= 0.001f)
             return;
 
@@ -374,13 +392,11 @@ public class BossController : MonoBehaviour
 
         if (bossSpriteRenderer != null)
             bossSpriteRenderer.flipX = !isFacingLeft;
-
-        previousPosition = transform.position;
     }
 
     private void FacePlayer()
     {
-        if (playerTransform == null)
+        if (isAttackPatternPlaying || playerTransform == null)
             return;
 
         float horizontalDirection = playerTransform.position.x - transform.position.x;
