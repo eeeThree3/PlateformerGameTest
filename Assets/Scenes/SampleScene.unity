@@ -741,7 +741,7 @@ Sprite:
       localAABB:
         m_Center: {x: 0, y: 0, z: 0}
         m_Extent: {x: 0, y: 0, z: 0}
-    m_IndexBuffer: 000001000200020001000300
+    m_IndexBuffer: 000001000200020001000300y
     m_VertexData:
       serializedVersion: 3
       m_VertexCount: 4
@@ -837,7 +837,7 @@ Sprite:
       localAABB:
         m_Center: {x: 0, y: 0, z: 0}
         m_Extent: {x: 0, y: 0, z: 0}
-    m_IndexBuffer: 000001000200020001000300
+    m_IndexBuffer: 000001000200020001000300y
     m_VertexData:
       serializedVersion: 3
       m_VertexCount: 4
@@ -1487,7 +1487,7 @@ MonoBehaviour:
   m_Intensity: 1
   m_LightVolumeIntensity: 1
   m_LightVolumeEnabled: 0
-  m_ApplyToSortingLayers: 00000000
+  m_ApplyToSortingLayers: 00000000i
   m_LightCookieSprite: {fileID: 0}
   m_DeprecatedPointLightCookieSprite: {fileID: 0}
   m_LightOrder: 0
@@ -1502,6 +1502,9 @@ MonoBehaviour:
   m_ShadowSoftnessFalloffIntensity: 0.5
   m_ShadowVolumeIntensityEnabled: 0
   m_ShadowVolumeIntensity: 0.75
+  m_RenderingLayersMask:
+    serializedVersion: 0
+    m_Bits: 1
   m_LocalBounds:
     m_Center: {x: 0, y: -0.00000011920929, z: 0}
     m_Extent: {x: 0.9985302, y: 0.99853027, z: 0}
@@ -2790,8 +2793,8 @@ MonoBehaviour:
   teleportDistance: 3
   moveSpeed: 2
   idleAfterAttack: 1
-  minPatternInterval: 3
-  maxPatternInterval: 8
+  minPatternInterval: 2
+  maxPatternInterval: 3
   betweenPatternMoveDuration: 1.5
   facePlayerInterval: 0.1
   normalAttackAnimation: BossNormalAttack
@@ -8787,9 +8790,9 @@ SpriteRenderer:
   m_SortingLayer: 0
   m_SortingOrder: 0
   m_MaskInteraction: 0
-  m_Sprite: {fileID: 2133219635, guid: 3b29e6069efc2d9458c54ef44476680c, type: 3}
+  m_Sprite: {fileID: -1643760197, guid: 148771c8e07720142aac952b3a8e67b8, type: 3}
   m_Color: {r: 1, g: 1, b: 1, a: 1}
-  m_FlipX: 0
+  m_FlipX: 1
   m_FlipY: 0
   m_DrawMode: 0
   m_Size: {x: 1, y: 0.6875}

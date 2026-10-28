@@ -54,6 +54,7 @@ public class BossController : MonoBehaviour
     private float facePlayerTimer;
     private SpriteRenderer[] effectRenderers = new SpriteRenderer[0];
     private Color[] effectOriginalColors = new Color[0];
+    private bool[] effectOriginalFlipX = new bool[0];
 
     private void Awake()
     {
@@ -250,7 +251,7 @@ public class BossController : MonoBehaviour
         transform.position = new Vector3(destination.x, transform.position.y, transform.position.z);
         UpdateFacingFromMovement();
         Vector2 effectPosition = (Vector2)transform.position + direction * Mathf.Max(0f, effectForwardOffset);
-        ShowAttackEffect(effectPosition);
+        ShowAttackEffect(effectPosition, direction);
 
         HashSet<IDamageable> damagedTargets = new HashSet<IDamageable>();
         float elapsed = 0f;
@@ -331,7 +332,7 @@ public class BossController : MonoBehaviour
             animator.Play(normalAttackAnimation, 0, 0f);
     }
 
-    private void ShowAttackEffect(Vector2 position)
+    private void ShowAttackEffect(Vector2 position, Vector2 direction)
     {
         if (normalAttackEffect == null) return;
 
@@ -341,6 +342,7 @@ public class BossController : MonoBehaviour
         {
             effectRenderers[i].enabled = true;
             effectRenderers[i].color = effectOriginalColors[i];
+            effectRenderers[i].flipX = effectOriginalFlipX[i] ^ (direction.x < 0f);
         }
     }
 
@@ -372,8 +374,12 @@ public class BossController : MonoBehaviour
 
         effectRenderers = normalAttackEffect.GetComponentsInChildren<SpriteRenderer>(true);
         effectOriginalColors = new Color[effectRenderers.Length];
+        effectOriginalFlipX = new bool[effectRenderers.Length];
         for (int i = 0; i < effectRenderers.Length; i++)
+        {
             effectOriginalColors[i] = effectRenderers[i].color;
+            effectOriginalFlipX[i] = effectRenderers[i].flipX;
+        }
         normalAttackEffect.SetActive(false);
     }
 
