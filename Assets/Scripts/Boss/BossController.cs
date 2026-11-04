@@ -9,6 +9,18 @@ public class BossController : MonoBehaviour
         PhaseOne
     }
 
+    private enum AttackPattern
+    {
+        NormalAttack,
+        Strike
+    }
+
+    private static readonly AttackPattern[] phaseOnePatterns =
+    {
+        AttackPattern.NormalAttack,
+        AttackPattern.Strike
+    };
+
     [Header("References")]
     [SerializeField] private Animator animator;
     [SerializeField] private BossAnimation bossAnimation;
@@ -48,9 +60,17 @@ public class BossController : MonoBehaviour
     [SerializeField] private float strikeRange = 3.5f;
     [SerializeField] private float strikeWidth = 3f;
     [SerializeField] private float strikeDamage = 20f;
+    [SerializeField] private GameObject strikeEffectObject;
+    [SerializeField] private float strikeEffectFadeDuration = 0.4f;
+    [SerializeField] private float strikeCameraShakeDuration = 0.15f;
+    [SerializeField] private float strikeCameraShakeMagnitude = 0.12f;
 
     private BossPhase currentPhase = BossPhase.PhaseOne;
     private Coroutine battleRoutine;
+    private Coroutine strikeEffectFadeRoutine;
+    private SpriteRenderer strikeEffectRenderer;
+    private Color strikeEffectOriginalColor;
+    private MainCameraFollow cameraFollow;
     private bool isFacingLeft;
     private bool isDead;
     private bool isCutscenePlaying;
@@ -70,6 +90,7 @@ public class BossController : MonoBehaviour
         if (bossAnimation == null) bossAnimation = GetComponent<BossAnimation>();
         if (bossStat == null) bossStat = GetComponent<BossStat>();
         if (bossSpriteRenderer == null) bossSpriteRenderer = GetComponentInChildren<SpriteRenderer>();
+        cameraFollow = FindAnyObjectByType<MainCameraFollow>();
         if (playerTransform == null)
         {
             PlayerStat player = FindAnyObjectByType<PlayerStat>();
@@ -86,6 +107,7 @@ public class BossController : MonoBehaviour
         }
 
         CacheEffectRenderers();
+        CacheStrikeEffect();
         previousPosition = transform.position;
 
         if (bossStat != null)
@@ -153,10 +175,67 @@ public class BossController : MonoBehaviour
 
     private IEnumerator ExecutePhaseOnePattern()
     {
-        if (Random.value < 0.5f)
-            yield return ExecuteNormalAttackPattern();
-        else
-            yield return ExecuteStrikePattern();
+        if (!TryChoosePhaseOnePattern(out AttackPattern pattern))
+        {
+            Debug.LogError("No phase one attack patterns have a positive weight.", this);
+            yield break;
+        }
+
+        switch (pattern)
+        {
+            case AttackPattern.NormalAttack:
+                yield return ExecuteNormalAttackPattern();
+                break;
+            case AttackPattern.Strike:
+                yield return ExecuteStrikePattern();
+                break;
+        }
+    }
+
+    private bool TryChoosePhaseOnePattern(out AttackPattern selectedPattern)
+    {
+        float totalWeight = 0f;
+        foreach (AttackPattern pattern in phaseOnePatterns)
+            totalWeight += GetPhaseOnePatternWeight(pattern);
+
+        if (totalWeight <= 0f)
+        {
+            selectedPattern = default;
+            return false;
+        }
+
+        float randomWeight = Random.value * totalWeight;
+        AttackPattern lastWeightedPattern = default;
+        foreach (AttackPattern pattern in phaseOnePatterns)
+        {
+            float weight = GetPhaseOnePatternWeight(pattern);
+            if (weight <= 0f)
+                continue;
+
+            lastWeightedPattern = pattern;
+            if (randomWeight < weight)
+            {
+                selectedPattern = pattern;
+                return true;
+            }
+
+            randomWeight -= weight;
+        }
+
+        selectedPattern = lastWeightedPattern;
+        return true;
+    }
+
+    private float GetPhaseOnePatternWeight(AttackPattern pattern)
+    {
+        switch (pattern)
+        {
+            case AttackPattern.NormalAttack:
+            case AttackPattern.Strike:
+                return 1f;
+            default:
+                return 0f;
+        }
     }
 
     private IEnumerator ExecuteNormalAttackPattern()
@@ -258,6 +337,9 @@ public class BossController : MonoBehaviour
 
         HashSet<IDamageable> damagedTargets = new HashSet<IDamageable>();
         ApplyDamage(hits, damagedTargets, strikeDamage);
+
+        ShowStrikeEffect(attackCenter);
+        cameraFollow?.Shake(strikeCameraShakeDuration, strikeCameraShakeMagnitude);
     }
 
     private IEnumerator MoveToAttackDistance()
@@ -431,6 +513,59 @@ public class BossController : MonoBehaviour
         }
 
         normalAttackEffect.SetActive(false);
+    }
+
+    private void CacheStrikeEffect()
+    {
+        if (strikeEffectObject == null)
+            return;
+
+        strikeEffectRenderer = strikeEffectObject.GetComponent<SpriteRenderer>();
+        if (strikeEffectRenderer == null)
+        {
+            Debug.LogError("Strike effect object is missing a SpriteRenderer.", strikeEffectObject);
+            return;
+        }
+
+        if (bossSpriteRenderer != null)
+        {
+            strikeEffectRenderer.sortingLayerID = bossSpriteRenderer.sortingLayerID;
+            strikeEffectRenderer.sortingOrder = bossSpriteRenderer.sortingOrder + 1;
+        }
+
+        strikeEffectOriginalColor = strikeEffectRenderer.color;
+        strikeEffectObject.SetActive(false);
+    }
+
+    private void ShowStrikeEffect(Vector2 position)
+    {
+        if (strikeEffectObject == null)
+            return;
+
+        if (strikeEffectFadeRoutine != null)
+            StopCoroutine(strikeEffectFadeRoutine);
+
+        strikeEffectObject.transform.position = position;
+        strikeEffectRenderer.flipX = isFacingLeft;
+        strikeEffectRenderer.color = strikeEffectOriginalColor;
+        strikeEffectObject.SetActive(true);
+        strikeEffectFadeRoutine = StartCoroutine(FadeOutStrikeEffect());
+    }
+
+    private IEnumerator FadeOutStrikeEffect()
+    {
+        float elapsed = 0f;
+        while (elapsed < strikeEffectFadeDuration)
+        {
+            Color color = strikeEffectOriginalColor;
+            color.a *= 1f - elapsed / Mathf.Max(0.01f, strikeEffectFadeDuration);
+            strikeEffectRenderer.color = color;
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        strikeEffectObject.SetActive(false);
+        strikeEffectFadeRoutine = null;
     }
 
     private void CacheEffectRenderers()
