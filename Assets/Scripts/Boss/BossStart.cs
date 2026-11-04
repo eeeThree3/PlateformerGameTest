@@ -112,12 +112,10 @@ public class BossStart : MonoBehaviour
 			return;
 		}
 
-		if (cameraFollow == null)
-		{
-			return;
-		}
+		if (cameraFollow != null)
+			cameraFollow.FocusOn(focusPoint, cameraMoveDuration, cameraOrthographicSize);
 
-		cameraFollow.FocusOn(focusPoint, cameraMoveDuration, cameraOrthographicSize);
+		bossController?.StartBattle();
 	}
 
 	private void CachePlayerComponents(Collider2D other)

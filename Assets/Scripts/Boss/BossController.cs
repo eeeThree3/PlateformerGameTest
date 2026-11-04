@@ -43,6 +43,12 @@ public class BossController : MonoBehaviour
     [SerializeField] private float normalAttackDamage = 20f;
     [SerializeField] private LayerMask playerLayer;
 
+    [Header("Strike Attack")]
+    [SerializeField] private string strikeAnimation = "BossStrike";
+    [SerializeField] private float strikeRange = 3.5f;
+    [SerializeField] private float strikeWidth = 3f;
+    [SerializeField] private float strikeDamage = 20f;
+
     private BossPhase currentPhase = BossPhase.PhaseOne;
     private Coroutine battleRoutine;
     private bool isFacingLeft;
@@ -50,6 +56,8 @@ public class BossController : MonoBehaviour
     private bool isCutscenePlaying;
     private bool isAttackPatternPlaying;
     private bool normalAttackEventTriggered;
+    private bool isStrikePatternPlaying;
+    private bool strikeEventTriggered;
     private Vector3 previousPosition;
     private float facePlayerTimer;
     private SpriteRenderer[] effectRenderers = new SpriteRenderer[0];
@@ -82,12 +90,6 @@ public class BossController : MonoBehaviour
 
         if (bossStat != null)
             bossStat.OnDeath += StopBattle;
-    }
-
-    private void Start()
-    {
-        if (!isCutscenePlaying)
-            StartBattle();
     }
 
     private void Update()
@@ -151,6 +153,14 @@ public class BossController : MonoBehaviour
 
     private IEnumerator ExecutePhaseOnePattern()
     {
+        if (Random.value < 0.5f)
+            yield return ExecuteNormalAttackPattern();
+        else
+            yield return ExecuteStrikePattern();
+    }
+
+    private IEnumerator ExecuteNormalAttackPattern()
+    {
         yield return MoveToAttackDistance();
 
         if (isDead || playerTransform == null)
@@ -177,6 +187,43 @@ public class BossController : MonoBehaviour
         FacePlayer();
     }
 
+    private IEnumerator ExecuteStrikePattern()
+    {
+        yield return MoveToAttackDistance();
+
+        if (isDead || isCutscenePlaying || playerTransform == null)
+            yield break;
+
+        if (animator == null || string.IsNullOrEmpty(strikeAnimation) ||
+            !animator.HasState(0, Animator.StringToHash($"Base Layer.{strikeAnimation}")))
+        {
+            Debug.LogError($"Boss strike animation state '{strikeAnimation}' is missing.", this);
+            yield break;
+        }
+
+        FacePlayer();
+        isAttackPatternPlaying = true;
+        isStrikePatternPlaying = true;
+        strikeEventTriggered = false;
+        animator.Play(strikeAnimation, 0, 0f);
+
+        while (!isDead && !isCutscenePlaying)
+        {
+            AnimatorStateInfo stateInfo = animator.GetCurrentAnimatorStateInfo(0);
+            if (stateInfo.IsName(strikeAnimation) && stateInfo.normalizedTime >= 1f)
+                break;
+
+            yield return null;
+        }
+
+        if (!isDead && !isCutscenePlaying)
+            animator.Play("BossIdle", 0, 0f);
+
+        isStrikePatternPlaying = false;
+        isAttackPatternPlaying = false;
+        FacePlayer();
+    }
+
     private IEnumerator WaitForNormalAttackAnimation()
     {
         if (animator == null || string.IsNullOrEmpty(normalAttackAnimation))
@@ -193,6 +240,24 @@ public class BossController : MonoBehaviour
     {
         if (!isDead && !isCutscenePlaying)
             normalAttackEventTriggered = true;
+    }
+
+    public void BossStrikeHit()
+    {
+        if (isDead || isCutscenePlaying || !isStrikePatternPlaying || strikeEventTriggered)
+            return;
+
+        strikeEventTriggered = true;
+        Vector2 direction = isFacingLeft ? Vector2.left : Vector2.right;
+        Vector2 spriteCenter = bossSpriteRenderer != null
+            ? bossSpriteRenderer.bounds.center
+            : transform.position;
+        Vector2 attackCenter = spriteCenter + direction * (strikeRange * 0.5f);
+        Collider2D[] hits = Physics2D.OverlapBoxAll(attackCenter,
+            new Vector2(strikeRange, strikeWidth), 0f, playerLayer);
+
+        HashSet<IDamageable> damagedTargets = new HashSet<IDamageable>();
+        ApplyDamage(hits, damagedTargets, strikeDamage);
     }
 
     private IEnumerator MoveToAttackDistance()
@@ -290,7 +355,7 @@ public class BossController : MonoBehaviour
         Collider2D[] effectHits = Physics2D.OverlapCircleAll(destination, effectRadius, playerLayer);
 
         ApplyPathDamage(pathHits, damagedTargets);
-        ApplyDamage(effectHits, damagedTargets);
+        ApplyDamage(effectHits, damagedTargets, GetAttackDamage());
     }
 
     private void ApplyPathDamage(RaycastHit2D[] hits, HashSet<IDamageable> damagedTargets)
@@ -298,26 +363,26 @@ public class BossController : MonoBehaviour
         foreach (RaycastHit2D hit in hits)
         {
             if (hit.collider != null)
-                ApplyDamage(hit.collider, damagedTargets);
+                ApplyDamage(hit.collider, damagedTargets, GetAttackDamage());
         }
     }
 
-    private void ApplyDamage(Collider2D[] hits, HashSet<IDamageable> damagedTargets)
+    private void ApplyDamage(Collider2D[] hits, HashSet<IDamageable> damagedTargets, float damage)
     {
         foreach (Collider2D hit in hits)
         {
-            ApplyDamage(hit, damagedTargets);
+            ApplyDamage(hit, damagedTargets, damage);
         }
     }
 
-    private void ApplyDamage(Collider2D hit, HashSet<IDamageable> damagedTargets)
+    private void ApplyDamage(Collider2D hit, HashSet<IDamageable> damagedTargets, float damage)
     {
         if (hit == null || hit.GetComponentInParent<PlayerStat>() == null)
             return;
 
         IDamageable damageable = hit.GetComponentInParent<IDamageable>();
         if (damageable != null && damagedTargets.Add(damageable))
-            damageable.TakeDamage(GetAttackDamage());
+            damageable.TakeDamage(damage);
     }
 
     private void PlayNormalAttackAnimation()
@@ -476,7 +541,7 @@ public class BossController : MonoBehaviour
         StartBattle();
     }
 
-    private void StartBattle()
+    public void StartBattle()
     {
         if (isDead || isCutscenePlaying || battleRoutine != null)
             return;
