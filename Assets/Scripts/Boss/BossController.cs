@@ -12,13 +12,15 @@ public class BossController : MonoBehaviour
     private enum AttackPattern
     {
         NormalAttack,
-        Strike
+        Strike,
+        UnderSlash
     }
 
     private static readonly AttackPattern[] phaseOnePatterns =
     {
         AttackPattern.NormalAttack,
-        AttackPattern.Strike
+        AttackPattern.Strike,
+        AttackPattern.UnderSlash
     };
 
     [Header("References")]
@@ -28,6 +30,9 @@ public class BossController : MonoBehaviour
     [SerializeField] private Transform playerTransform;
     [SerializeField] private GameObject normalAttackEffect;
     [SerializeField] private SpriteRenderer bossSpriteRenderer;
+    [SerializeField] private GameObject underSlashEffectObject;
+    [SerializeField] private Transform bossWallLeft;
+    [SerializeField] private Transform bossWallRight;
 
     [Header("Wall Collision")]
     [SerializeField] private LayerMask wallLayer;
@@ -65,6 +70,15 @@ public class BossController : MonoBehaviour
     [SerializeField] private float strikeCameraShakeDuration = 0.15f;
     [SerializeField] private float strikeCameraShakeMagnitude = 0.12f;
 
+    [Header("Under Slash")]
+    [SerializeField] private string underSlashAnimation = "BossUnderSlash";
+    [SerializeField] private float underSlashRushDuration = 0.45f;
+    [SerializeField] private float underSlashEffectFadeDuration = 0.5f;
+    [SerializeField] private float underSlashHitNormalizedTime = 0.8f;
+    [SerializeField] private float underSlashWallInset = 0.5f;
+    [SerializeField] private LayerMask groundLayer;
+    [SerializeField] private float underSlashDamage = 20f;
+
     private BossPhase currentPhase = BossPhase.PhaseOne;
     private Coroutine battleRoutine;
     private Coroutine strikeEffectFadeRoutine;
@@ -78,11 +92,16 @@ public class BossController : MonoBehaviour
     private bool normalAttackEventTriggered;
     private bool isStrikePatternPlaying;
     private bool strikeEventTriggered;
+    private bool isUnderSlashPatternPlaying;
+    private bool underSlashEventTriggered;
     private Vector3 previousPosition;
     private float facePlayerTimer;
     private SpriteRenderer[] effectRenderers = new SpriteRenderer[0];
     private Color[] effectOriginalColors = new Color[0];
     private bool[] effectOriginalFlipX = new bool[0];
+    private SpriteRenderer underSlashEffectRenderer;
+    private Color underSlashEffectOriginalColor;
+    private Coroutine underSlashEffectFadeRoutine;
 
     private void Awake()
     {
@@ -106,8 +125,12 @@ public class BossController : MonoBehaviour
             playerLayer = playerLayerIndex >= 0 ? 1 << playerLayerIndex : ~0;
         }
 
+        if (groundLayer.value == 0)
+            groundLayer = LayerMask.GetMask("Ground");
+
         CacheEffectRenderers();
         CacheStrikeEffect();
+        CacheUnderSlashEffect();
         previousPosition = transform.position;
 
         if (bossStat != null)
@@ -189,6 +212,9 @@ public class BossController : MonoBehaviour
             case AttackPattern.Strike:
                 yield return ExecuteStrikePattern();
                 break;
+            case AttackPattern.UnderSlash:
+                yield return ExecuteUnderSlashPattern();
+                break;
         }
     }
 
@@ -232,6 +258,7 @@ public class BossController : MonoBehaviour
         {
             case AttackPattern.NormalAttack:
             case AttackPattern.Strike:
+            case AttackPattern.UnderSlash:
                 return 1f;
             default:
                 return 0f;
@@ -301,6 +328,306 @@ public class BossController : MonoBehaviour
         isStrikePatternPlaying = false;
         isAttackPatternPlaying = false;
         FacePlayer();
+    }
+
+    private IEnumerator ExecuteUnderSlashPattern()
+    {
+        if (!TryGetArenaBounds(out Bounds arenaBounds))
+        {
+            Debug.LogError("Boss under-slash requires at least one active collider on the Ground layer.", this);
+            yield break;
+        }
+
+        if (animator == null || string.IsNullOrEmpty(underSlashAnimation) ||
+            !animator.HasState(0, Animator.StringToHash($"Base Layer.{underSlashAnimation}")))
+        {
+            Debug.LogError($"Boss under-slash animation state '{underSlashAnimation}' is missing.", this);
+            yield break;
+        }
+
+        isAttackPatternPlaying = true;
+        isUnderSlashPatternPlaying = true;
+        underSlashEventTriggered = false;
+
+        if (!TryGetBossWallBounds(out float wallLeftX, out float wallRightX))
+        {
+            Debug.LogError("Boss under-slash requires BossWallLeft and BossWallRight references.", this);
+            yield break;
+        }
+
+        bool targetRightSide = Random.value < 0.5f;
+        float sideInset = bossSpriteRenderer != null ? bossSpriteRenderer.bounds.extents.x : wallCheckRadius;
+        float targetX = targetRightSide
+            ? wallRightX - Mathf.Max(sideInset, underSlashWallInset)
+            : wallLeftX + Mathf.Max(sideInset, underSlashWallInset);
+        targetX = Mathf.Clamp(targetX, wallLeftX, wallRightX);
+
+        yield return RushToUnderSlashSide(targetX);
+
+        if (isDead || isCutscenePlaying)
+        {
+            isUnderSlashPatternPlaying = false;
+            isAttackPatternPlaying = false;
+            yield break;
+        }
+
+        if (!TryGetGroundY(targetX, arenaBounds, out float groundY))
+        {
+            Debug.LogError("Could not find the ground below the boss for the under-slash pattern.", this);
+            isUnderSlashPatternPlaying = false;
+            isAttackPatternPlaying = false;
+            yield break;
+        }
+
+        LandOnGround(targetX, groundY);
+        isFacingLeft = targetRightSide;
+        ApplyFacingDirection();
+        animator.Play(underSlashAnimation, 0, 0f);
+
+        while (!isDead && !isCutscenePlaying)
+        {
+            AnimatorStateInfo stateInfo = animator.GetCurrentAnimatorStateInfo(0);
+            if (stateInfo.IsName(underSlashAnimation))
+            {
+                if (!underSlashEventTriggered &&
+                    stateInfo.normalizedTime >= underSlashHitNormalizedTime)
+                {
+                    BossUnderSlashHit();
+                }
+
+                if (stateInfo.normalizedTime >= 1f)
+                    break;
+            }
+
+            yield return null;
+        }
+
+        if (!isDead && !isCutscenePlaying)
+            animator.Play("BossIdle", 0, 0f);
+
+        isUnderSlashPatternPlaying = false;
+        isAttackPatternPlaying = false;
+        FacePlayer();
+    }
+
+    private IEnumerator RushToUnderSlashSide(float targetX)
+    {
+        Vector3 startPosition = transform.position;
+        float duration = Mathf.Max(0.01f, underSlashRushDuration);
+        float elapsed = 0f;
+        float nextAfterimageTime = 0f;
+        bool isMovingLeft = targetX < startPosition.x;
+
+        while (elapsed < duration && !isDead && !isCutscenePlaying)
+        {
+            elapsed += Time.deltaTime;
+            float progress = Mathf.Clamp01(elapsed / duration);
+            progress = progress * progress * (3f - 2f * progress);
+            Vector3 position = Vector3.Lerp(startPosition, new Vector3(targetX, startPosition.y, startPosition.z), progress);
+            transform.position = position;
+            isFacingLeft = isMovingLeft;
+            ApplyFacingDirection();
+
+            if (elapsed >= nextAfterimageTime)
+            {
+                SpawnUnderSlashAfterimage();
+                nextAfterimageTime = elapsed + 0.04f;
+            }
+
+            yield return null;
+        }
+
+        if (!isDead && !isCutscenePlaying)
+            transform.position = new Vector3(targetX, startPosition.y, startPosition.z);
+    }
+
+    private bool TryGetArenaBounds(out Bounds arenaBounds)
+    {
+        Collider2D[] colliders = FindObjectsByType<Collider2D>();
+        bool foundGround = false;
+        arenaBounds = default;
+
+        foreach (Collider2D groundCollider in colliders)
+        {
+            if (groundCollider == null || !groundCollider.enabled ||
+                (groundLayer.value & (1 << groundCollider.gameObject.layer)) == 0)
+                continue;
+
+            if (!foundGround)
+            {
+                arenaBounds = groundCollider.bounds;
+                foundGround = true;
+            }
+            else
+            {
+                arenaBounds.Encapsulate(groundCollider.bounds);
+            }
+        }
+
+        return foundGround;
+    }
+
+    private bool TryGetBossWallBounds(out float wallLeftX, out float wallRightX)
+    {
+        wallLeftX = 0f;
+        wallRightX = 0f;
+        if (bossWallLeft == null || bossWallRight == null)
+            return false;
+
+        wallLeftX = Mathf.Min(bossWallLeft.position.x, bossWallRight.position.x);
+        wallRightX = Mathf.Max(bossWallLeft.position.x, bossWallRight.position.x);
+        return wallRightX > wallLeftX;
+    }
+
+    private bool TryGetGroundY(float x, Bounds arenaBounds, out float groundY)
+    {
+        Vector2 rayOrigin = new Vector2(x, arenaBounds.max.y + 10f);
+        RaycastHit2D hit = Physics2D.Raycast(rayOrigin, Vector2.down,
+            arenaBounds.size.y + 20f, groundLayer);
+        if (hit.collider == null)
+        {
+            groundY = 0f;
+            return false;
+        }
+
+        groundY = hit.point.y;
+        return true;
+    }
+
+    private void LandOnGround(float x, float groundY)
+    {
+        float feetOffset = bossSpriteRenderer != null
+            ? bossSpriteRenderer.bounds.min.y - transform.position.y
+            : 0f;
+        transform.position = new Vector3(x, groundY - feetOffset, transform.position.z);
+        previousPosition = transform.position;
+    }
+
+    private void SpawnUnderSlashAfterimage()
+    {
+        if (bossSpriteRenderer == null || bossSpriteRenderer.sprite == null)
+            return;
+
+        GameObject afterimage = new GameObject("BossUnderSlashAfterimage");
+        afterimage.transform.SetPositionAndRotation(bossSpriteRenderer.transform.position,
+            bossSpriteRenderer.transform.rotation);
+        afterimage.transform.localScale = bossSpriteRenderer.transform.lossyScale;
+
+        SpriteRenderer afterimageRenderer = afterimage.AddComponent<SpriteRenderer>();
+        afterimageRenderer.sprite = bossSpriteRenderer.sprite;
+        afterimageRenderer.flipX = bossSpriteRenderer.flipX;
+        afterimageRenderer.sortingLayerID = bossSpriteRenderer.sortingLayerID;
+        afterimageRenderer.sortingOrder = bossSpriteRenderer.sortingOrder - 1;
+        Color color = bossSpriteRenderer.color;
+        color.a *= 0.45f;
+        afterimageRenderer.color = color;
+        StartCoroutine(FadeUnderSlashAfterimage(afterimageRenderer));
+    }
+
+    private IEnumerator FadeUnderSlashAfterimage(SpriteRenderer afterimageRenderer)
+    {
+        const float duration = 0.2f;
+        Color originalColor = afterimageRenderer.color;
+        float elapsed = 0f;
+
+        while (elapsed < duration && afterimageRenderer != null)
+        {
+            Color color = originalColor;
+            color.a *= 1f - elapsed / duration;
+            afterimageRenderer.color = color;
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        if (afterimageRenderer != null)
+            Destroy(afterimageRenderer.gameObject);
+    }
+
+    public void BossUnderSlashHit()
+    {
+        if (isDead || isCutscenePlaying || !isUnderSlashPatternPlaying || underSlashEventTriggered)
+            return;
+
+        underSlashEventTriggered = true;
+        if (!TryGetArenaBounds(out Bounds arenaBounds) ||
+            !TryGetBossWallBounds(out float wallLeftX, out float wallRightX) ||
+            !TryGetGroundY((wallLeftX + wallRightX) * 0.5f, arenaBounds, out float groundY))
+        {
+            Debug.LogError("Could not determine the boss room floor for the under-slash hit.", this);
+            return;
+        }
+
+        float wallSpan = wallRightX - wallLeftX;
+        float wallCenterX = (wallLeftX + wallRightX) * 0.5f;
+        Vector2 effectPosition = new Vector2(wallCenterX, groundY);
+        ShowUnderSlashEffect(effectPosition);
+
+        Collider2D[] hits = Physics2D.OverlapBoxAll(
+            new Vector2(wallCenterX, groundY + 0.5f),
+            new Vector2(wallSpan, 1f),
+            0f,
+            playerLayer);
+        ApplyDamage(hits, new HashSet<IDamageable>(), underSlashDamage);
+    }
+
+    private void CacheUnderSlashEffect()
+    {
+        if (underSlashEffectObject == null)
+        {
+            Debug.LogError("UnderSlashEffect scene object is not assigned.", this);
+            return;
+        }
+
+        underSlashEffectRenderer = underSlashEffectObject.GetComponent<SpriteRenderer>();
+        if (underSlashEffectRenderer == null)
+        {
+            Debug.LogError("UnderSlashEffect scene object is missing a SpriteRenderer.", underSlashEffectObject);
+            return;
+        }
+
+        underSlashEffectRenderer.sortingLayerID = bossSpriteRenderer != null
+            ? bossSpriteRenderer.sortingLayerID
+            : 0;
+        underSlashEffectRenderer.sortingOrder = 100;
+        underSlashEffectOriginalColor = underSlashEffectRenderer.color;
+        underSlashEffectRenderer.enabled = false;
+    }
+
+    private void ShowUnderSlashEffect(Vector2 position)
+    {
+        if (underSlashEffectObject == null || underSlashEffectRenderer == null)
+        {
+            Debug.LogError("Boss under-slash effect sprite is not assigned.", this);
+            return;
+        }
+
+        if (underSlashEffectFadeRoutine != null)
+            StopCoroutine(underSlashEffectFadeRoutine);
+
+        underSlashEffectObject.transform.position = position;
+        underSlashEffectRenderer.flipX = isFacingLeft;
+        underSlashEffectRenderer.color = underSlashEffectOriginalColor;
+        underSlashEffectRenderer.enabled = true;
+        underSlashEffectFadeRoutine = StartCoroutine(FadeOutUnderSlashEffect());
+    }
+
+    private IEnumerator FadeOutUnderSlashEffect()
+    {
+        float elapsed = 0f;
+        while (elapsed < underSlashEffectFadeDuration)
+        {
+            Color color = underSlashEffectOriginalColor;
+            color.a *= 1f - elapsed / Mathf.Max(0.01f, underSlashEffectFadeDuration);
+            underSlashEffectRenderer.color = color;
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        Color fadedColor = underSlashEffectOriginalColor;
+        fadedColor.a = 0f;
+        underSlashEffectRenderer.color = fadedColor;
+        underSlashEffectRenderer.enabled = false;
+        underSlashEffectFadeRoutine = null;
     }
 
     private IEnumerator WaitForNormalAttackAnimation()

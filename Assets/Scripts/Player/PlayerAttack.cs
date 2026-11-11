@@ -15,6 +15,7 @@ public class PlayerAttack : MonoBehaviour
     [SerializeField] private float comboResetTime = 1.0f;
     [SerializeField] private int maxCombo = 3;
     [SerializeField] private float attackMoveSpeed = 0.5f;
+    [SerializeField] private float interAttackPause = 0.1f;
 
     [Header("Attack Hit")]
     [SerializeField] private Transform attackPoint;
@@ -39,6 +40,7 @@ public class PlayerAttack : MonoBehaviour
     private bool comboWindowOpen = false;
     private bool queuedInput = false;
     private Coroutine comboResetRoutine;
+    private Coroutine attackRecoveryRoutine;
 
     private void Awake()
     {
@@ -56,6 +58,8 @@ public class PlayerAttack : MonoBehaviour
     Debug.Log("[PlayerAttack] OnEnable called");
     inputHandler.OnAttackInput += HandleAttackInput;
     inputHandler.MoveInputChanged += HandleMoveInputChanged;
+    inputHandler.JumpPressed += HandleActionInput;
+    inputHandler.DashPressed += HandleActionInput;
     Debug.Log("[PlayerAttack] MoveInputChanged subscribed");
     playerAnimator.OnComboWindowOpen += HandleComboWindowOpen;
     playerAnimator.OnAttackAnimationEnd += HandleAttackAnimationEnd;
@@ -65,6 +69,8 @@ public class PlayerAttack : MonoBehaviour
     {
         inputHandler.OnAttackInput -= HandleAttackInput;
         inputHandler.MoveInputChanged -= HandleMoveInputChanged;
+        inputHandler.JumpPressed -= HandleActionInput;
+        inputHandler.DashPressed -= HandleActionInput;
         playerAnimator.OnComboWindowOpen -= HandleComboWindowOpen;
         playerAnimator.OnAttackAnimationEnd -= HandleAttackAnimationEnd;
     }
@@ -76,13 +82,13 @@ public class PlayerAttack : MonoBehaviour
             return; // 대시 중엔 공격 입력 자체를 무시
         }
         
-        if (!isAttacking)
+        if (!isAttacking && attackRecoveryRoutine == null)
         {
             StartAttack();
         }
-        else if (comboWindowOpen)
+        else if (isAttacking && comboWindowOpen || attackRecoveryRoutine != null)
         {
-            queuedInput = true; // 다음 콤보 예약
+            queuedInput = true;
         }
         // isAttacking이면서 윈도우가 안 열렸으면 그냥 무시 (씹힘)
     }
@@ -125,11 +131,18 @@ public class PlayerAttack : MonoBehaviour
     {
         isAttacking = false;
         comboWindowOpen = false;
+        attackRecoveryRoutine = StartCoroutine(AttackRecovery());
+    }
+
+    private IEnumerator AttackRecovery()
+    {
+        yield return new WaitForSeconds(interAttackPause);
+        attackRecoveryRoutine = null;
 
         if (queuedInput)
         {
             queuedInput = false;
-            StartAttack(); // 예약된 입력 있으면 바로 다음 콤보
+            StartAttack();
         }
         else
         {
@@ -188,6 +201,11 @@ private void OnDrawGizmosSelected()
 
 private void HandleMoveInputChanged(Vector2 moveInput)
 {
+    if (attackRecoveryRoutine != null && moveInput.sqrMagnitude > 0.01f)
+    {
+        queuedInput = false;
+    }
+
     if (moveInput.x == 0f) return;
 
     bool shouldFaceRight = moveInput.x > 0f;
@@ -199,6 +217,14 @@ private void HandleMoveInputChanged(Vector2 moveInput)
     }
 
     ApplyFacingDirection(shouldFaceRight);
+}
+
+private void HandleActionInput()
+{
+    if (attackRecoveryRoutine != null)
+    {
+        queuedInput = false;
+    }
 }
 
 private void ApplyFacingDirection(bool shouldFaceRight)
