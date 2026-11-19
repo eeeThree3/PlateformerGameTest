@@ -13,16 +13,21 @@ public class BossController : MonoBehaviour
     {
         NormalAttack,
         Strike,
-        UnderSlash
+        UnderSlash,
+        LightConcentration
     }
 
     private static readonly AttackPattern[] phaseOnePatterns =
     {
         AttackPattern.NormalAttack,
         AttackPattern.Strike,
-        AttackPattern.UnderSlash
+        AttackPattern.UnderSlash,
+        AttackPattern.LightConcentration
     };
 
+    private const int lightConcentrationMinStarCount = 4;
+    private const int lightConcentrationMaxStarCount = 6;
+    private const int lightConcentrationShotCount = 4;
     [Header("References")]
     [SerializeField] private Animator animator;
     [SerializeField] private BossAnimation bossAnimation;
@@ -31,6 +36,7 @@ public class BossController : MonoBehaviour
     [SerializeField] private GameObject normalAttackEffect;
     [SerializeField] private SpriteRenderer bossSpriteRenderer;
     [SerializeField] private GameObject underSlashEffectObject;
+    [SerializeField] private Sprite lightStarEffectSprite;
     [SerializeField] private Transform bossWallLeft;
     [SerializeField] private Transform bossWallRight;
 
@@ -76,8 +82,24 @@ public class BossController : MonoBehaviour
     [SerializeField] private float underSlashEffectFadeDuration = 0.5f;
     [SerializeField] private float underSlashHitNormalizedTime = 0.8f;
     [SerializeField] private float underSlashWallInset = 0.5f;
+    [SerializeField, Min(0.01f)] private float underSlashAttackHeight = 1f;
     [SerializeField] private LayerMask groundLayer;
     [SerializeField] private float underSlashDamage = 20f;
+
+    [Header("Light Concentration")]
+    [SerializeField] private string lightConcentrationAnimation = "BossLightConcentration";
+    [SerializeField, Min(0f)] private float lightConcentrationStartupDelay = 1.5f;
+    [SerializeField, Min(0f)] private float lightConcentrationShotInterval = 0.8f;
+    [SerializeField, Min(0f)] private float lightConcentrationDamage = 10f;
+    [SerializeField, Min(0f)] private float lightConcentrationTargetLookback = 0.1f;
+    [SerializeField, Min(0.01f)] private float lightConcentrationBeamWidth = 0.1f;
+    [SerializeField, Min(0.01f)] private float lightConcentrationBeamFadeDuration = 0.4f;
+
+    private struct PlayerPositionSample
+    {
+        public float time;
+        public Vector3 position;
+    }
 
     private BossPhase currentPhase = BossPhase.PhaseOne;
     private Coroutine battleRoutine;
@@ -102,6 +124,9 @@ public class BossController : MonoBehaviour
     private SpriteRenderer underSlashEffectRenderer;
     private Color underSlashEffectOriginalColor;
     private Coroutine underSlashEffectFadeRoutine;
+    private readonly List<GameObject> lightConcentrationVisuals = new List<GameObject>();
+    private readonly List<PlayerPositionSample> playerPositionHistory = new List<PlayerPositionSample>();
+    private Material lightConcentrationLineMaterial;
 
     private void Awake()
     {
@@ -115,6 +140,8 @@ public class BossController : MonoBehaviour
             PlayerStat player = FindAnyObjectByType<PlayerStat>();
             if (player != null) playerTransform = player.transform;
         }
+
+        RecordPlayerPosition();
 
         if (wallLayer.value == 0)
             wallLayer = LayerMask.GetMask("Wall");
@@ -139,6 +166,8 @@ public class BossController : MonoBehaviour
 
     private void Update()
     {
+        RecordPlayerPosition();
+
         if (isDead || isCutscenePlaying || isAttackPatternPlaying || playerTransform == null)
             return;
 
@@ -154,12 +183,17 @@ public class BossController : MonoBehaviour
     {
         if (battleRoutine != null)
             StopCoroutine(battleRoutine);
+
+        ClearLightConcentrationVisuals();
     }
 
     private void OnDestroy()
     {
         if (bossStat != null)
             bossStat.OnDeath -= StopBattle;
+
+        if (lightConcentrationLineMaterial != null)
+            Destroy(lightConcentrationLineMaterial);
     }
 
     private IEnumerator BattleRoutine()
@@ -215,6 +249,9 @@ public class BossController : MonoBehaviour
             case AttackPattern.UnderSlash:
                 yield return ExecuteUnderSlashPattern();
                 break;
+            case AttackPattern.LightConcentration:
+                yield return ExecuteLightConcentrationPattern();
+                break;
         }
     }
 
@@ -259,6 +296,7 @@ public class BossController : MonoBehaviour
             case AttackPattern.NormalAttack:
             case AttackPattern.Strike:
             case AttackPattern.UnderSlash:
+            case AttackPattern.LightConcentration:
                 return 1f;
             default:
                 return 0f;
@@ -408,6 +446,247 @@ public class BossController : MonoBehaviour
         isUnderSlashPatternPlaying = false;
         isAttackPatternPlaying = false;
         FacePlayer();
+    }
+
+    private IEnumerator ExecuteLightConcentrationPattern()
+    {
+        if (playerTransform == null)
+        {
+            Debug.LogError("Light concentration requires a player reference.", this);
+            yield break;
+        }
+
+        if (lightStarEffectSprite == null)
+        {
+            Debug.LogError("Light concentration requires the LightStarEffect sprite.", this);
+            yield break;
+        }
+
+        if (animator == null || string.IsNullOrEmpty(lightConcentrationAnimation) ||
+            !animator.HasState(0, Animator.StringToHash($"Base Layer.{lightConcentrationAnimation}")))
+        {
+            Debug.LogError($"Light concentration animation state '{lightConcentrationAnimation}' is missing.", this);
+            yield break;
+        }
+
+        if (!TryGetLightConcentrationLineMaterial())
+            yield break;
+
+        FacePlayer();
+        isAttackPatternPlaying = true;
+        animator.Play(lightConcentrationAnimation, 0, 0f);
+
+        List<Transform> stars = new List<Transform>();
+        int starCount = Random.Range(lightConcentrationMinStarCount, lightConcentrationMaxStarCount + 1);
+        for (int i = 0; i < starCount; i++)
+        {
+            GameObject star = new GameObject("LightStarEffect");
+            star.transform.position = new Vector3(
+                Random.Range(18f, 40f),
+                Random.Range(2.5f, 6f),
+                transform.position.z);
+
+            SpriteRenderer starRenderer = star.AddComponent<SpriteRenderer>();
+            starRenderer.sprite = lightStarEffectSprite;
+            if (bossSpriteRenderer != null)
+            {
+                starRenderer.sortingLayerID = bossSpriteRenderer.sortingLayerID;
+                starRenderer.sortingOrder = bossSpriteRenderer.sortingOrder + 1;
+            }
+
+            stars.Add(star.transform);
+            lightConcentrationVisuals.Add(star);
+        }
+
+        yield return new WaitForSeconds(lightConcentrationStartupDelay);
+
+        for (int shot = 0; shot < lightConcentrationShotCount; shot++)
+        {
+            if (isDead || isCutscenePlaying || playerTransform == null)
+                break;
+
+            Vector3 targetPosition = GetPlayerPositionAt(Time.time - lightConcentrationTargetLookback);
+            HashSet<IDamageable> damagedTargets = new HashSet<IDamageable>();
+            foreach (Transform star in stars)
+            {
+                if (star == null)
+                    continue;
+
+                LineRenderer beam = CreateLightConcentrationBeam(star.position, targetPosition);
+                if (beam == null)
+                    continue;
+
+                StartCoroutine(FadeLightConcentrationBeam(beam));
+                DamageTargetsAlongLightConcentrationBeam(
+                    star.position,
+                    targetPosition,
+                    damagedTargets);
+            }
+
+            if (shot < lightConcentrationShotCount - 1)
+                yield return new WaitForSeconds(lightConcentrationShotInterval);
+        }
+
+        if (!isDead && !isCutscenePlaying)
+            yield return new WaitForSeconds(Mathf.Max(0.01f, lightConcentrationBeamFadeDuration));
+
+        ClearLightConcentrationVisuals();
+        isAttackPatternPlaying = false;
+        if (!isDead && !isCutscenePlaying)
+        {
+            animator.Play("BossIdle", 0, 0f);
+            FacePlayer();
+        }
+    }
+
+    private void RecordPlayerPosition()
+    {
+        if (playerTransform == null)
+            return;
+
+        float sampleTime = Time.time;
+        Vector3 position = playerTransform.position;
+        if (playerPositionHistory.Count > 0 &&
+            playerPositionHistory[playerPositionHistory.Count - 1].time == sampleTime)
+        {
+            PlayerPositionSample latest = playerPositionHistory[playerPositionHistory.Count - 1];
+            latest.position = position;
+            playerPositionHistory[playerPositionHistory.Count - 1] = latest;
+        }
+        else
+        {
+            playerPositionHistory.Add(new PlayerPositionSample
+            {
+                time = sampleTime,
+                position = position
+            });
+        }
+
+        float oldestRequiredTime = sampleTime - lightConcentrationTargetLookback;
+        while (playerPositionHistory.Count > 2 &&
+               playerPositionHistory[1].time < oldestRequiredTime)
+        {
+            playerPositionHistory.RemoveAt(0);
+        }
+    }
+
+    private Vector3 GetPlayerPositionAt(float targetTime)
+    {
+        if (playerPositionHistory.Count == 0)
+            return playerTransform.position;
+
+        if (targetTime <= playerPositionHistory[0].time)
+            return playerPositionHistory[0].position;
+
+        for (int i = 1; i < playerPositionHistory.Count; i++)
+        {
+            PlayerPositionSample next = playerPositionHistory[i];
+            if (next.time < targetTime)
+                continue;
+
+            PlayerPositionSample previous = playerPositionHistory[i - 1];
+            float sampleDuration = next.time - previous.time;
+            if (sampleDuration <= 0f)
+                return next.position;
+
+            float interpolation = (targetTime - previous.time) / sampleDuration;
+            return Vector3.Lerp(previous.position, next.position, interpolation);
+        }
+
+        return playerPositionHistory[playerPositionHistory.Count - 1].position;
+    }
+
+    private bool TryGetLightConcentrationLineMaterial()
+    {
+        if (lightConcentrationLineMaterial != null)
+            return true;
+
+        Shader shader = Shader.Find("Sprites/Default");
+        if (shader == null)
+        {
+            Debug.LogError("Could not find the Sprites/Default shader for light concentration beams.", this);
+            return false;
+        }
+
+        lightConcentrationLineMaterial = new Material(shader);
+        return true;
+    }
+
+    private LineRenderer CreateLightConcentrationBeam(Vector3 start, Vector3 end)
+    {
+        GameObject beamObject = new GameObject("LightConcentrationBeam");
+        LineRenderer beam = beamObject.AddComponent<LineRenderer>();
+        beam.useWorldSpace = true;
+        beam.positionCount = 2;
+        beam.startWidth = lightConcentrationBeamWidth;
+        beam.endWidth = lightConcentrationBeamWidth;
+        beam.startColor = Color.yellow;
+        beam.endColor = Color.yellow;
+        beam.sharedMaterial = lightConcentrationLineMaterial;
+        if (bossSpriteRenderer != null)
+        {
+            beam.sortingLayerID = bossSpriteRenderer.sortingLayerID;
+            beam.sortingOrder = bossSpriteRenderer.sortingOrder + 2;
+        }
+
+        beam.SetPosition(0, start);
+        beam.SetPosition(1, end);
+        lightConcentrationVisuals.Add(beamObject);
+        return beam;
+    }
+
+    private IEnumerator FadeLightConcentrationBeam(LineRenderer beam)
+    {
+        Color originalColor = Color.yellow;
+        float duration = Mathf.Max(0.01f, lightConcentrationBeamFadeDuration);
+        float elapsed = 0f;
+        while (elapsed < duration && beam != null)
+        {
+            Color color = originalColor;
+            color.a *= 1f - elapsed / duration;
+            beam.startColor = color;
+            beam.endColor = color;
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        if (beam != null)
+        {
+            lightConcentrationVisuals.Remove(beam.gameObject);
+            Destroy(beam.gameObject);
+        }
+    }
+
+    private void DamageTargetsAlongLightConcentrationBeam(
+        Vector2 start,
+        Vector2 end,
+        HashSet<IDamageable> damagedTargets)
+    {
+        Vector2 direction = end - start;
+        float distance = direction.magnitude;
+        RaycastHit2D[] hits = Physics2D.CircleCastAll(
+            start,
+            Mathf.Max(0.01f, lightConcentrationBeamWidth * 0.5f),
+            distance > 0f ? direction / distance : Vector2.right,
+            distance,
+            playerLayer);
+
+        foreach (RaycastHit2D hit in hits)
+        {
+            if (hit.collider != null)
+                ApplyDamage(hit.collider, damagedTargets, lightConcentrationDamage);
+        }
+    }
+
+    private void ClearLightConcentrationVisuals()
+    {
+        foreach (GameObject visual in lightConcentrationVisuals)
+        {
+            if (visual != null)
+                Destroy(visual);
+        }
+
+        lightConcentrationVisuals.Clear();
     }
 
     private IEnumerator RushToUnderSlashSide(float targetX)
@@ -563,8 +842,8 @@ public class BossController : MonoBehaviour
         ShowUnderSlashEffect(effectPosition);
 
         Collider2D[] hits = Physics2D.OverlapBoxAll(
-            new Vector2(wallCenterX, groundY + 0.5f),
-            new Vector2(wallSpan, 1f),
+            new Vector2(wallCenterX, groundY + underSlashAttackHeight * 0.5f),
+            new Vector2(wallSpan, underSlashAttackHeight),
             0f,
             playerLayer);
         ApplyDamage(hits, new HashSet<IDamageable>(), underSlashDamage);
@@ -605,7 +884,7 @@ public class BossController : MonoBehaviour
             StopCoroutine(underSlashEffectFadeRoutine);
 
         underSlashEffectObject.transform.position = position;
-        underSlashEffectRenderer.flipX = isFacingLeft;
+        underSlashEffectRenderer.flipX = !isFacingLeft;
         underSlashEffectRenderer.color = underSlashEffectOriginalColor;
         underSlashEffectRenderer.enabled = true;
         underSlashEffectFadeRoutine = StartCoroutine(FadeOutUnderSlashEffect());
@@ -973,6 +1252,7 @@ public class BossController : MonoBehaviour
         isDead = true;
         if (battleRoutine != null)
             StopCoroutine(battleRoutine);
+        ClearLightConcentrationVisuals();
     }
 
     public void BeginCutscene()
@@ -991,7 +1271,10 @@ public class BossController : MonoBehaviour
         if (normalAttackEffect != null)
             normalAttackEffect.SetActive(false);
 
-        bossAnimation?.SetCutsceneMode(true);
+        ClearLightConcentrationVisuals();
+
+        if (bossAnimation != null)
+            bossAnimation.SetCutsceneMode(true);
     }
 
     public void EndCutscene()
@@ -999,7 +1282,8 @@ public class BossController : MonoBehaviour
         if (isDead) return;
 
         isCutscenePlaying = false;
-        bossAnimation?.SetCutsceneMode(false);
+        if (bossAnimation != null)
+            bossAnimation.SetCutsceneMode(false);
         StartBattle();
     }
 

@@ -11,6 +11,7 @@ public class BossStart : MonoBehaviour
 	[SerializeField] private float cameraOrthographicSize = 8f;
 	[SerializeField] private PlayableDirector bossTimeline;
 	[SerializeField] private BossController bossController;
+	[SerializeField] private BossBar bossBar;
 
 	public bool HasPlayerEntered { get; private set; }
 
@@ -47,6 +48,12 @@ public class BossStart : MonoBehaviour
 	{
 		if (bossController == null)
 			bossController = FindAnyObjectByType<BossController>();
+		if (bossBar == null && bossController != null)
+		{
+			bossBar = bossController.GetComponent<BossBar>();
+			if (bossBar == null)
+				bossBar = bossController.gameObject.AddComponent<BossBar>();
+		}
 
 		Collider2D areaCollider = GetComponent<Collider2D>();
 		if (areaCollider == null || !areaCollider.isTrigger)
@@ -116,6 +123,7 @@ public class BossStart : MonoBehaviour
 			cameraFollow.FocusOn(focusPoint, cameraMoveDuration, cameraOrthographicSize);
 
 		bossController?.StartBattle();
+		bossBar?.Show();
 	}
 
 	private void CachePlayerComponents(Collider2D other)
@@ -174,7 +182,7 @@ public class BossStart : MonoBehaviour
 		{
 			originalBodyType = playerRigidbody.bodyType;
 			playerRigidbody.linearVelocity = Vector2.zero;
-			playerRigidbody.bodyType = RigidbodyType2D.Kinematic;
+			playerRigidbody.bodyType = RigidbodyType2D.Dynamic;
 		}
 
 		if (playerSpriteRenderer != null)
@@ -190,6 +198,7 @@ public class BossStart : MonoBehaviour
 	{
 		director.stopped -= HandleTimelineStopped;
 		bossController?.EndCutscene();
+		bossBar?.Show();
 		UnlockPlayerAfterCutscene();
 	}
 

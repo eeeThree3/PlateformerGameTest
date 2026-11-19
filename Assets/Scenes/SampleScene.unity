@@ -440,7 +440,7 @@ MonoBehaviour:
     m_SelectedTrigger: Selected
     m_DisabledTrigger: Disabled
   m_Interactable: 1
-  m_TargetGraphic: {fileID: 1940456728}
+  m_TargetGraphic: {fileID: 282315206}
   m_FillRect: {fileID: 1062858705}
   m_HandleRect: {fileID: 1940456727}
   m_Direction: 0
@@ -1284,7 +1284,7 @@ Transform:
   m_GameObject: {fileID: 595494966}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 17.33, y: 1, z: 0}
+  m_LocalPosition: {x: 17.33, y: -0.5, z: 0}
   m_LocalScale: {x: 3, y: 3, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -2646,7 +2646,7 @@ Transform:
   m_GameObject: {fileID: 1074128282}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 38.43, y: -0.32, z: 0}
+  m_LocalPosition: {x: 38.43, y: -2.3, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -2785,6 +2785,7 @@ MonoBehaviour:
   normalAttackEffect: {fileID: 1966407000}
   bossSpriteRenderer: {fileID: 1074128285}
   underSlashEffectObject: {fileID: 3881293141}
+  lightStarEffectSprite: {fileID: -445368916, guid: b19507e07dc0a7e4392bbf7f5338d84d, type: 3}
   bossWallLeft: {fileID: 595494967}
   bossWallRight: {fileID: 1223421500}
   wallLayer:
@@ -2824,10 +2825,18 @@ MonoBehaviour:
   underSlashEffectFadeDuration: 0.5
   underSlashHitNormalizedTime: 0.8
   underSlashWallInset: 0.5
+  underSlashAttackHeight: 0.5
   groundLayer:
     serializedVersion: 2
     m_Bits: 64
   underSlashDamage: 20
+  lightConcentrationAnimation: BossLightConcentration
+  lightConcentrationStartupDelay: 2
+  lightConcentrationShotInterval: 1
+  lightConcentrationDamage: 10
+  lightConcentrationTargetLookback: 0.2
+  lightConcentrationBeamWidth: 0.1
+  lightConcentrationBeamFadeDuration: 0.4
 --- !u!1 &1119554845
 GameObject:
   m_ObjectHideFlags: 0
@@ -3211,6 +3220,7 @@ MonoBehaviour:
   comboResetTime: 0.2
   maxCombo: 3
   attackMoveSpeed: 0.5
+  interAttackPause: 0.1
   attackPoint: {fileID: 1510626596}
   attackRange: 0.6
   enemyLayer:
@@ -3408,7 +3418,7 @@ Transform:
   m_GameObject: {fileID: 1223421496}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 41.67, y: 1, z: 0}
+  m_LocalPosition: {x: 41.67, y: -0.5, z: 0}
   m_LocalScale: {x: 3, y: 3, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -3809,6 +3819,7 @@ MonoBehaviour:
   cameraOrthographicSize: 8
   bossTimeline: {fileID: 1763623304}
   bossController: {fileID: 0}
+  bossBar: {fileID: 0}
 --- !u!320 &1763623304
 PlayableDirector:
   m_ObjectHideFlags: 0
@@ -3868,7 +3879,7 @@ Transform:
   m_GameObject: {fileID: 1874944439}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 0.47, z: 0}
+  m_LocalPosition: {x: 1.63, y: -1.33, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -8679,8 +8690,6 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1940456727}
-  - component: {fileID: 1940456729}
-  - component: {fileID: 1940456728}
   m_Layer: 5
   m_Name: Handle
   m_TagString: Untagged
@@ -8707,44 +8716,6 @@ RectTransform:
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 20, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
---- !u!114 &1940456728
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1940456726}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: fe87c0e1cc204ed48ad3b37840f39efc, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.Image
-  m_Material: {fileID: 0}
-  m_Color: {r: 1, g: 1, b: 1, a: 1}
-  m_RaycastTarget: 1
-  m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
-  m_Maskable: 1
-  m_OnCullStateChanged:
-    m_PersistentCalls:
-      m_Calls: []
-  m_Sprite: {fileID: 10913, guid: 0000000000000000f000000000000000, type: 0}
-  m_Type: 0
-  m_PreserveAspect: 0
-  m_FillCenter: 1
-  m_FillMethod: 4
-  m_FillAmount: 1
-  m_FillClockwise: 1
-  m_FillOrigin: 0
-  m_UseSpriteMesh: 0
-  m_PixelsPerUnitMultiplier: 1
---- !u!222 &1940456729
-CanvasRenderer:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1940456726}
-  m_CullTransparentMesh: 1
 --- !u!1 &1966407000
 GameObject:
   m_ObjectHideFlags: 0
@@ -8954,7 +8925,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 3881293141}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
   m_LocalPosition: {x: 29.5, y: 0.6, z: 0}
   m_LocalScale: {x: 12, y: 2.5, z: 1}
   m_ConstrainProportionsScale: 0
@@ -9028,6 +8999,7 @@ SceneRoots:
   - {fileID: 619394802}
   - {fileID: 1119554849}
   - {fileID: 1074128286}
+  - {fileID: 3881293142}
   - {fileID: 591826693}
   - {fileID: 731498726}
   - {fileID: 883988883}
@@ -9038,4 +9010,3 @@ SceneRoots:
   - {fileID: 595494967}
   - {fileID: 1223421500}
   - {fileID: 1763623302}
-  - {fileID: 3881293142}

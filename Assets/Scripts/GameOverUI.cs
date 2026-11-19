@@ -58,7 +58,6 @@ public class GameOverUI : MonoBehaviour
         Time.timeScale = 0f; // 게임 정지 (Update 기반 로직도 모두 멈춤)
     }
 
-    // 재시작 버튼의 OnClick()에 이 메서드를 연결하세요
     public void OnClickRestart()
     {
         Time.timeScale = 1f; // 다음 씬에서 정상 동작하도록 timeScale 복구는 필수
