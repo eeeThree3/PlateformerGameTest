@@ -94,6 +94,9 @@ public class BossController : MonoBehaviour
     [SerializeField, Min(0f)] private float lightConcentrationTargetLookback = 0.1f;
     [SerializeField, Min(0.01f)] private float lightConcentrationBeamWidth = 0.1f;
     [SerializeField, Min(0.01f)] private float lightConcentrationBeamFadeDuration = 0.4f;
+    [SerializeField, Min(0f)] private float lightConcentrationTelegraphDuration = 0.3f;
+    [SerializeField, Min(0.01f)] private float lightConcentrationTelegraphRadius = 1f;
+    [SerializeField, Min(0.01f)] private float lightConcentrationTelegraphWidth = 0.05f;
 
     private struct PlayerPositionSample
     {
@@ -505,6 +508,21 @@ public class BossController : MonoBehaviour
             if (isDead || isCutscenePlaying || playerTransform == null)
                 break;
 
+            List<LineRenderer> warningRings = new List<LineRenderer>();
+            foreach (Transform star in stars)
+            {
+                if (star == null)
+                    continue;
+
+                LineRenderer warningRing = CreateLightConcentrationWarningRing(star.position);
+                if (warningRing != null)
+                    warningRings.Add(warningRing);
+            }
+
+            yield return AnimateLightConcentrationWarningRings(warningRings);
+            if (isDead || isCutscenePlaying || playerTransform == null)
+                break;
+
             Vector3 targetPosition = GetPlayerPositionAt(Time.time - lightConcentrationTargetLookback);
             HashSet<IDamageable> damagedTargets = new HashSet<IDamageable>();
             foreach (Transform star in stars)
@@ -524,7 +542,11 @@ public class BossController : MonoBehaviour
             }
 
             if (shot < lightConcentrationShotCount - 1)
-                yield return new WaitForSeconds(lightConcentrationShotInterval);
+            {
+                float warningDuration = Mathf.Max(0f, lightConcentrationTelegraphDuration);
+                float delayBeforeNextWarning = Mathf.Max(0f, lightConcentrationShotInterval - warningDuration);
+                yield return new WaitForSeconds(delayBeforeNextWarning);
+            }
         }
 
         if (!isDead && !isCutscenePlaying)
@@ -654,6 +676,75 @@ public class BossController : MonoBehaviour
         {
             lightConcentrationVisuals.Remove(beam.gameObject);
             Destroy(beam.gameObject);
+        }
+    }
+
+    private LineRenderer CreateLightConcentrationWarningRing(Vector3 center)
+    {
+        GameObject ringObject = new GameObject("LightConcentrationWarning");
+        ringObject.transform.position = center;
+        LineRenderer ring = ringObject.AddComponent<LineRenderer>();
+        ring.useWorldSpace = true;
+        ring.loop = true;
+        ring.positionCount = 32;
+        ring.startWidth = lightConcentrationTelegraphWidth;
+        ring.endWidth = lightConcentrationTelegraphWidth;
+        ring.startColor = Color.yellow;
+        ring.endColor = Color.yellow;
+        ring.sharedMaterial = lightConcentrationLineMaterial;
+        if (bossSpriteRenderer != null)
+        {
+            ring.sortingLayerID = bossSpriteRenderer.sortingLayerID;
+            ring.sortingOrder = bossSpriteRenderer.sortingOrder + 2;
+        }
+
+        SetLightConcentrationWarningRingRadius(ring, center, lightConcentrationTelegraphRadius);
+        lightConcentrationVisuals.Add(ringObject);
+        return ring;
+    }
+
+    private IEnumerator AnimateLightConcentrationWarningRings(List<LineRenderer> warningRings)
+    {
+        float duration = Mathf.Max(0f, lightConcentrationTelegraphDuration);
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            float progress = elapsed / duration;
+            float radius = Mathf.Lerp(lightConcentrationTelegraphRadius, 0f, progress);
+            Color color = Color.yellow;
+            color.a = 1f - progress;
+
+            foreach (LineRenderer ring in warningRings)
+            {
+                if (ring == null)
+                    continue;
+
+                SetLightConcentrationWarningRingRadius(ring, ring.transform.position, radius);
+                ring.startColor = color;
+                ring.endColor = color;
+            }
+
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        foreach (LineRenderer ring in warningRings)
+        {
+            if (ring == null)
+                continue;
+
+            lightConcentrationVisuals.Remove(ring.gameObject);
+            Destroy(ring.gameObject);
+        }
+    }
+
+    private static void SetLightConcentrationWarningRingRadius(LineRenderer ring, Vector3 center, float radius)
+    {
+        const int segmentCount = 32;
+        for (int i = 0; i < segmentCount; i++)
+        {
+            float angle = 2f * Mathf.PI * i / segmentCount;
+            ring.SetPosition(i, center + new Vector3(Mathf.Cos(angle), Mathf.Sin(angle), 0f) * radius);
         }
     }
 

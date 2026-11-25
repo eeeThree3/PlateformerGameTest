@@ -11,6 +11,8 @@ public class PlayerInputHandler : MonoBehaviour
 
     private float lastDashInvokeTime;
     private PlayerInput playerInput;
+    private InputAction dashAction;
+    private InputAction selfHealAction;
 
     // 다른 스크립트는 이 이벤트만 구독하면 됨. PlayerMove/PlayerAnimator를 전혀 몰라도 됨.
     public event Action<Vector2> MoveInputChanged;
@@ -18,6 +20,8 @@ public class PlayerInputHandler : MonoBehaviour
     public event Action DashPressed;
     public event Action AttackPressed;
     public event Action OnAttackInput;
+    public event Action SelfHealPressed;
+    public event Action SelfHealReleased;
 
     public void ClearMoveInput()
     {
@@ -31,6 +35,51 @@ public class PlayerInputHandler : MonoBehaviour
     private void Awake()
     {
         playerInput = GetComponent<PlayerInput>();
+    }
+
+    private void OnEnable()
+    {
+        if (playerInput == null)
+            return;
+
+        dashAction = playerInput.actions.FindAction("Player/Dash", false);
+        if (dashAction == null)
+        {
+            Debug.LogError("Player input action 'Player/Dash' was not found.", this);
+        }
+        else
+        {
+            dashAction.performed += HandleDashActionPerformed;
+        }
+
+        selfHealAction = playerInput.actions.FindAction("Player/SelfHeal", false);
+        if (selfHealAction == null)
+        {
+            Debug.LogError("Player input action 'Player/SelfHeal' was not found.", this);
+        }
+        else
+        {
+            selfHealAction.started += HandleSelfHealStarted;
+            selfHealAction.canceled += HandleSelfHealCanceled;
+        }
+    }
+
+    private void OnDisable()
+    {
+        if (dashAction != null)
+        {
+            dashAction.performed -= HandleDashActionPerformed;
+            dashAction = null;
+        }
+
+        if (selfHealAction != null)
+        {
+            selfHealAction.started -= HandleSelfHealStarted;
+            selfHealAction.canceled -= HandleSelfHealCanceled;
+            selfHealAction = null;
+        }
+
+        SelfHealReleased?.Invoke();
     }
 
     private void Update()
@@ -84,6 +133,38 @@ public class PlayerInputHandler : MonoBehaviour
             Debug.Log("[Input] Fallback Attack performed");
             AttackPressed?.Invoke();
         }
+
+        bool selfHealIsPressed = Keyboard.current.fKey.isPressed;
+        if (selfHealIsPressed)
+        {
+            if (!fallbackSelfHealIsPressed)
+            {
+                fallbackSelfHealIsPressed = true;
+                SelfHealPressed?.Invoke();
+            }
+        }
+        else if (fallbackSelfHealIsPressed)
+        {
+            fallbackSelfHealIsPressed = false;
+            SelfHealReleased?.Invoke();
+        }
+    }
+
+    private bool fallbackSelfHealIsPressed;
+
+    private void HandleSelfHealStarted(InputAction.CallbackContext context)
+    {
+        SelfHealPressed?.Invoke();
+    }
+
+    private void HandleSelfHealCanceled(InputAction.CallbackContext context)
+    {
+        SelfHealReleased?.Invoke();
+    }
+
+    private void HandleDashActionPerformed(InputAction.CallbackContext context)
+    {
+        RaiseDashPressed();
     }
 
     // Unity PlayerInput 컴포넌트(Send Messages 또는 Invoke Unity Events)가 호출
@@ -113,17 +194,20 @@ public class PlayerInputHandler : MonoBehaviour
     public void OnDash(InputAction.CallbackContext context)
     {
         if (context.performed)
-        {
-            float now = Time.unscaledTime;
-            if (now - lastDashInvokeTime < 0.08f)
-            {
-                Debug.Log($"[Input] Dash duplicate event ignored ({now - lastDashInvokeTime:F3}s)");
-                return;
-            }
+            RaiseDashPressed();
+    }
 
-            lastDashInvokeTime = now;
-            Debug.Log("[Input] Dash performed");
-            DashPressed?.Invoke();
+    private void RaiseDashPressed()
+    {
+        float now = Time.unscaledTime;
+        if (now - lastDashInvokeTime < 0.08f)
+        {
+            Debug.Log($"[Input] Dash duplicate event ignored ({now - lastDashInvokeTime:F3}s)");
+            return;
         }
+
+        lastDashInvokeTime = now;
+        Debug.Log("[Input] Dash performed");
+        DashPressed?.Invoke();
     }
 }
