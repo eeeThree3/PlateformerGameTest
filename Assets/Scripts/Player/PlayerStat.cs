@@ -7,6 +7,7 @@ public class PlayerStat : MonoBehaviour, IDamageable
     private const int SelfHealAmount = 50;
     private const int MaxSelfHealUses = 3;
     private const float SelfHealHoldDuration = 3f;
+    private const int SelfHealProgressSegmentCount = 48;
 
     [Header("Health")]
     [SerializeField] private int maxHealth = 100;
@@ -20,12 +21,19 @@ public class PlayerStat : MonoBehaviour, IDamageable
 
     private PlayerDash playerDash;
     private PlayerInputHandler inputHandler;
+    private SpriteRenderer selfHealSourceSprite;
     private Coroutine selfHealRoutine;
+    private GameObject selfHealProgressObject;
+    private LineRenderer selfHealProgressRenderer;
+    private Material selfHealProgressMaterial;
+    private bool isSelfHealing;
 
     public int MaxHealth => maxHealth;
     public int CurrentHealth => currentHealth;
     public int AttackPower => attackPower;
     public bool IsDead => currentHealth <= 0;
+    public bool IsSelfHealing =>
+        isSelfHealing && !IsDead && currentHealth < maxHealth && selfHealUses < MaxSelfHealUses;
     private int selfHealUses;
 
     // 이동/공격 스크립트에서 이 값을 체크해서 경직 중엔 입력을 무시하도록 연동해주세요.
@@ -45,6 +53,7 @@ public class PlayerStat : MonoBehaviour, IDamageable
         currentHealth = maxHealth;
         playerDash = GetComponent<PlayerDash>();
         inputHandler = GetComponent<PlayerInputHandler>();
+        selfHealSourceSprite = GetComponentInChildren<SpriteRenderer>();
     }
 
     private void OnEnable()
@@ -65,6 +74,12 @@ public class PlayerStat : MonoBehaviour, IDamageable
         }
 
         CancelSelfHeal();
+    }
+
+    private void OnDestroy()
+    {
+        if (selfHealProgressMaterial != null)
+            Destroy(selfHealProgressMaterial);
     }
 
     private void Start()
@@ -94,6 +109,21 @@ public class PlayerStat : MonoBehaviour, IDamageable
     public void TakeDamage(float damage)
     {
         TakeDamage(Mathf.RoundToInt(damage));
+    }
+
+    public void ApplyKnockback(Vector2 knockback, Rigidbody2D targetRigidbody)
+    {
+        if (targetRigidbody == null || IsDead)
+            return;
+
+        if (playerDash != null && playerDash.IsDashing)
+            playerDash.CancelDashForKnockback();
+
+        if (!IsHitStunned)
+            StartHitStun();
+
+        targetRigidbody.linearVelocity = new Vector2(0f, targetRigidbody.linearVelocity.y);
+        targetRigidbody.AddForce(knockback, ForceMode2D.Impulse);
     }
 
     private void StartHitStun()
@@ -181,36 +211,136 @@ public class PlayerStat : MonoBehaviour, IDamageable
 
     private void StartSelfHeal()
     {
-        if (selfHealRoutine != null)
-            StopCoroutine(selfHealRoutine);
+        if (selfHealRoutine != null || IsDead)
+            return;
 
+        if (selfHealUses >= MaxSelfHealUses)
+        {
+            ShowSelfHealUnavailable();
+            return;
+        }
+
+        if (currentHealth >= maxHealth)
+            return;
+
+        if (playerDash != null && playerDash.IsDashing)
+            playerDash.CancelDashForKnockback();
+
+        isSelfHealing = true;
+        CreateSelfHealProgressVisual();
         selfHealRoutine = StartCoroutine(SelfHealAfterHold());
     }
 
     private void CancelSelfHeal()
     {
-        if (selfHealRoutine == null)
-            return;
-
-        StopCoroutine(selfHealRoutine);
+        if (selfHealRoutine != null)
+            StopCoroutine(selfHealRoutine);
         selfHealRoutine = null;
+        FinishSelfHeal();
     }
 
     private IEnumerator SelfHealAfterHold()
     {
-        yield return new WaitForSeconds(SelfHealHoldDuration);
-
-        if (selfHealUses >= MaxSelfHealUses)
+        float elapsed = 0f;
+        while (elapsed < SelfHealHoldDuration)
         {
-            ShowSelfHealUnavailable();
-        }
-        else
-        {
-            Heal(SelfHealAmount);
-            selfHealUses++;
+            if (IsDead || currentHealth >= maxHealth || selfHealUses >= MaxSelfHealUses)
+            {
+                selfHealRoutine = null;
+                FinishSelfHeal();
+                yield break;
+            }
+
+            UpdateSelfHealProgress(elapsed / SelfHealHoldDuration);
+            elapsed += Time.deltaTime;
+            yield return null;
         }
 
+        if (IsDead || currentHealth >= maxHealth || selfHealUses >= MaxSelfHealUses)
+        {
+            selfHealRoutine = null;
+            FinishSelfHeal();
+            yield break;
+        }
+
+        UpdateSelfHealProgress(1f);
+        Heal(SelfHealAmount);
+        selfHealUses++;
         selfHealRoutine = null;
+        FinishSelfHeal();
+    }
+
+    private void FinishSelfHeal()
+    {
+        isSelfHealing = false;
+        ClearSelfHealProgressVisual();
+    }
+
+    private void CreateSelfHealProgressVisual()
+    {
+        Shader shader = Shader.Find("Sprites/Default");
+        if (shader == null)
+        {
+            Debug.LogError("Could not find the Sprites/Default shader for the self-heal progress indicator.", this);
+            return;
+        }
+
+        if (selfHealProgressMaterial == null)
+            selfHealProgressMaterial = new Material(shader);
+
+        selfHealProgressObject = new GameObject("SelfHealProgress");
+        selfHealProgressRenderer = selfHealProgressObject.AddComponent<LineRenderer>();
+        selfHealProgressRenderer.useWorldSpace = true;
+        selfHealProgressRenderer.loop = false;
+        selfHealProgressRenderer.positionCount = 0;
+        selfHealProgressRenderer.startWidth = 0.06f;
+        selfHealProgressRenderer.endWidth = 0.06f;
+        selfHealProgressRenderer.startColor = Color.green;
+        selfHealProgressRenderer.endColor = Color.green;
+        selfHealProgressRenderer.sharedMaterial = selfHealProgressMaterial;
+        if (selfHealSourceSprite != null)
+        {
+            selfHealProgressRenderer.sortingLayerID = selfHealSourceSprite.sortingLayerID;
+            selfHealProgressRenderer.sortingOrder = selfHealSourceSprite.sortingOrder + 2;
+        }
+    }
+
+    private void UpdateSelfHealProgress(float progress)
+    {
+        if (selfHealProgressRenderer == null)
+            return;
+
+        progress = Mathf.Clamp01(progress);
+        int segmentCount = Mathf.CeilToInt(progress * SelfHealProgressSegmentCount);
+        if (segmentCount == 0)
+        {
+            selfHealProgressRenderer.positionCount = 0;
+            return;
+        }
+
+        selfHealProgressRenderer.positionCount = segmentCount + 1;
+        Vector3 center = selfHealSourceSprite != null
+            ? new Vector3(
+                selfHealSourceSprite.bounds.center.x,
+                selfHealSourceSprite.bounds.max.y + 0.25f,
+                selfHealSourceSprite.bounds.center.z)
+            : transform.position + Vector3.up * 1.25f;
+        float radius = 0.35f;
+        float sweepAngle = 2f * Mathf.PI * progress;
+        for (int i = 0; i <= segmentCount; i++)
+        {
+            float angle = -Mathf.PI * 0.5f + sweepAngle * i / segmentCount;
+            Vector3 position = center + new Vector3(Mathf.Cos(angle), Mathf.Sin(angle), 0f) * radius;
+            selfHealProgressRenderer.SetPosition(i, position);
+        }
+    }
+
+    private void ClearSelfHealProgressVisual()
+    {
+        if (selfHealProgressObject != null)
+            Destroy(selfHealProgressObject);
+        selfHealProgressObject = null;
+        selfHealProgressRenderer = null;
     }
 
     private void ShowSelfHealUnavailable()
@@ -233,7 +363,15 @@ public class PlayerStat : MonoBehaviour, IDamageable
         marker.color = Color.red;
 
         MeshRenderer markerRenderer = markerObject.GetComponent<MeshRenderer>();
-        markerRenderer.sortingOrder = 10;
+        if (selfHealSourceSprite != null)
+        {
+            markerRenderer.sortingLayerID = selfHealSourceSprite.sortingLayerID;
+            markerRenderer.sortingOrder = selfHealSourceSprite.sortingOrder + 10;
+        }
+        else
+        {
+            markerRenderer.sortingOrder = 10;
+        }
 
         StartCoroutine(AnimateSelfHealUnavailable(markerObject, marker, startPosition));
     }

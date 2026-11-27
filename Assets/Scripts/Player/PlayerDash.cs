@@ -15,6 +15,7 @@ public class PlayerDash : MonoBehaviour
     [SerializeField] private Transform cameraTransform;
     [SerializeField] private SpriteRenderer spriteRenderer;
     [SerializeField] private PlayerAttack playerAttack; 
+    [SerializeField] private PlayerStat playerStat;
 
     [Header("Dash Settings")]
     [SerializeField] private float dashDistance = 5f;
@@ -31,8 +32,10 @@ public class PlayerDash : MonoBehaviour
     public bool IsDashing => isDashing;
 
     private bool isDashing;
+    private Coroutine dashRoutine;
     private float cooldownTimer;
     private float originalGravityScale;
+    private int lastDashHandledFrame = -1;
     private Vector2 lastMoveDirection = Vector2.right;
     private readonly bool[] originalLayerCollisions = new bool[32];
     private bool layerCollisionsIgnored;
@@ -47,6 +50,11 @@ public class PlayerDash : MonoBehaviour
         if (playerAttack == null)   // 추가
         {
             playerAttack = GetComponent<PlayerAttack>();
+        }
+
+        if (playerStat == null)
+        {
+            playerStat = GetComponent<PlayerStat>();
         }
 
         if (characterController == null)
@@ -126,31 +134,59 @@ public class PlayerDash : MonoBehaviour
             }
         }
 
-        if (inputHandler != null && Mathf.Abs(inputHandler.MoveInput.x) > 0.01f)
+        Keyboard keyboard = Keyboard.current;
+        if (keyboard != null)
         {
-            lastMoveDirection = new Vector2(Mathf.Sign(inputHandler.MoveInput.x), 0f);
+            bool leftPressed = keyboard.leftArrowKey.isPressed || keyboard.aKey.isPressed;
+            bool rightPressed = keyboard.rightArrowKey.isPressed || keyboard.dKey.isPressed;
+            if (leftPressed)
+                lastMoveDirection = Vector2.left;
+            else if (rightPressed)
+                lastMoveDirection = Vector2.right;
+
+            if (keyboard.zKey.wasPressedThisFrame)
+            {
+                Debug.Log("[PlayerDash] Raw Z input detected.", this);
+                HandleDash();
+            }
         }
 
-        if (inputHandler == null && Keyboard.current != null && Keyboard.current.zKey.wasPressedThisFrame)
+        if (inputHandler != null && Mathf.Abs(inputHandler.MoveInput.x) > 0.01f
+            && (keyboard == null || (!keyboard.leftArrowKey.isPressed && !keyboard.aKey.isPressed
+                && !keyboard.rightArrowKey.isPressed && !keyboard.dKey.isPressed)))
         {
-            HandleDash();
+            lastMoveDirection = new Vector2(Mathf.Sign(inputHandler.MoveInput.x), 0f);
         }
     }
 
     private void HandleDash()
     {
+        if (lastDashHandledFrame == Time.frameCount)
+            return;
+
+        lastDashHandledFrame = Time.frameCount;
+
+        if (playerStat != null && playerStat.IsSelfHealing)
+        {
+            Debug.Log("[PlayerDash] Dash blocked: self-healing.", this);
+            return;
+        }
+
         if (playerAttack != null && playerAttack.IsAttacking)
         {
+            Debug.Log("[PlayerDash] Dash blocked: attacking.", this);
             return;
         }
         
         if (isDashing)
         {
+            Debug.Log("[PlayerDash] Dash blocked: already dashing.", this);
             return;
         }
 
         if (cooldownTimer > 0f)
         {
+            Debug.Log($"[PlayerDash] Dash blocked: cooldown ({cooldownTimer:F2}s).", this);
             return;
         }
 
@@ -159,7 +195,21 @@ public class PlayerDash : MonoBehaviour
             inputHandler = GetComponent<PlayerInputHandler>();
         }
 
-        Vector2 input = lastMoveDirection;
+        float currentMoveX = inputHandler != null ? inputHandler.MoveInput.x : 0f;
+        Keyboard keyboard = Keyboard.current;
+        if (keyboard != null)
+        {
+            bool leftPressed = keyboard.leftArrowKey.isPressed || keyboard.aKey.isPressed;
+            bool rightPressed = keyboard.rightArrowKey.isPressed || keyboard.dKey.isPressed;
+            if (leftPressed)
+                currentMoveX = -1f;
+            else if (rightPressed)
+                currentMoveX = 1f;
+        }
+
+        Vector2 input = Mathf.Abs(currentMoveX) > 0.01f
+            ? new Vector2(Mathf.Sign(currentMoveX), 0f)
+            : lastMoveDirection;
 
         if (input.sqrMagnitude < 0.01f)
         {
@@ -171,10 +221,14 @@ public class PlayerDash : MonoBehaviour
         Vector3 dashDirection = GetDashDirection(input);
         if (dashDirection.sqrMagnitude < 0.01f)
         {
+            Debug.Log($"[PlayerDash] Dash input received but direction is zero. MoveInput={currentMoveX:F2}, last={lastMoveDirection}.", this);
             return;
         }
 
-        StartCoroutine(DashRoutine(dashDirection));
+        Debug.Log(
+            $"[PlayerDash] Dash accepted: MoveInput={currentMoveX:F2}, left={(keyboard != null && (keyboard.leftArrowKey.isPressed || keyboard.aKey.isPressed))}, right={(keyboard != null && (keyboard.rightArrowKey.isPressed || keyboard.dKey.isPressed))}, direction={dashDirection}, mover={(characterController != null ? "CharacterController" : "Rigidbody2D")}.",
+            this);
+        dashRoutine = StartCoroutine(DashRoutine(dashDirection));
     }
 
     private Vector3 GetDashDirection(Vector2 input)
@@ -250,6 +304,8 @@ public class PlayerDash : MonoBehaviour
 
     private IEnumerator DashRoutine(Vector3 direction)
     {
+        Vector3 dashStartPosition = transform.position;
+        Vector3 requestedDirection = direction;
         isDashing = true;
         cooldownTimer = dashCooldown;
         DashStateChanged?.Invoke(true);
@@ -309,6 +365,25 @@ public class PlayerDash : MonoBehaviour
             rigidbody2D.gravityScale = originalGravityScale;
         }
 
+        RestoreIgnoredCollisions();
+        ResetDashPhysics();
+        isDashing = false;
+        dashRoutine = null;
+        DashStateChanged?.Invoke(false);
+        Debug.Log(
+            $"[PlayerDash] Dash completed: direction={requestedDirection}, displacement={transform.position - dashStartPosition}.",
+            this);
+    }
+
+    public void CancelDashForKnockback()
+    {
+        if (!isDashing)
+            return;
+
+        if (dashRoutine != null)
+            StopCoroutine(dashRoutine);
+
+        dashRoutine = null;
         RestoreIgnoredCollisions();
         ResetDashPhysics();
         isDashing = false;

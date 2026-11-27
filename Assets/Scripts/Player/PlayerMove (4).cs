@@ -22,6 +22,7 @@ public class PlayerMove : MonoBehaviour
     public Transform groundCheck;
 
     [SerializeField] private float moveSpeed = 6f;
+    [SerializeField, Range(0.1f, 1f)] private float selfHealMoveSpeedMultiplier = 0.8f;
     [SerializeField] private float jumpForce = 6f;
     [SerializeField] private float wallCheckDistance = 0.2f;
     [SerializeField] private float wallSlideSpeed = 2f;
@@ -145,7 +146,6 @@ public class PlayerMove : MonoBehaviour
 
         if (playerStat != null && playerStat.IsHitStunned)
         {
-            rb.linearVelocity = new Vector2(0f, rb.linearVelocity.y);
             return;
         }
         
@@ -160,10 +160,16 @@ public class PlayerMove : MonoBehaviour
             return;
         }
 
+        float moveSpeedMultiplier = playerStat != null && playerStat.IsSelfHealing
+            ? selfHealMoveSpeedMultiplier
+            : 1f;
+
         if (playerAttack != null && playerAttack.IsAttacking)
         {
             rb.gravityScale = defaultGravity;
-            rb.linearVelocity = new Vector2(playerAttack.AttackDirection * playerAttack.AttackMoveSpeed, rb.linearVelocity.y);
+            rb.linearVelocity = new Vector2(
+                playerAttack.AttackDirection * playerAttack.AttackMoveSpeed * moveSpeedMultiplier,
+                rb.linearVelocity.y);
             return;
         }
 
@@ -180,7 +186,7 @@ public class PlayerMove : MonoBehaviour
             if (moveInput.x != 0f)
             {
                 Vector2 slopeDirection = new Vector2(slopeNormal.y, -slopeNormal.x);
-                Vector2 slopeVelocity = slopeDirection * moveInput.x * moveSpeed;
+                Vector2 slopeVelocity = slopeDirection * moveInput.x * moveSpeed * moveSpeedMultiplier;
                 rb.linearVelocity = new Vector2(slopeVelocity.x, Mathf.Min(slopeVelocity.y, 0f));
             }
             else
@@ -191,7 +197,7 @@ public class PlayerMove : MonoBehaviour
         else
         {
             rb.gravityScale = defaultGravity;
-            rb.linearVelocity = new Vector2(moveInput.x * moveSpeed, rb.linearVelocity.y);
+            rb.linearVelocity = new Vector2(moveInput.x * moveSpeed * moveSpeedMultiplier, rb.linearVelocity.y);
 
             bool leftSlopeWhileMoving = wasMovingOnSlope && !onSlope && !grounded && !isJumping;
             if (leftSlopeWhileMoving && rb.linearVelocity.y > 0f)

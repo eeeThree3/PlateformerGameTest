@@ -14,20 +14,31 @@ public class BossController : MonoBehaviour
         NormalAttack,
         Strike,
         UnderSlash,
+        UnderPunch,
         LightConcentration
     }
 
-    private static readonly AttackPattern[] phaseOnePatterns =
+    [System.Serializable]
+    private struct AttackPatternWeight
     {
-        AttackPattern.NormalAttack,
-        AttackPattern.Strike,
-        AttackPattern.UnderSlash,
-        AttackPattern.LightConcentration
+        public AttackPattern pattern;
+        [Min(0f)] public float baseWeight;
+    }
+
+    [Header("Phase One Pattern Weights")]
+    [SerializeField] private AttackPatternWeight[] phaseOnePatternWeights =
+    {
+        new AttackPatternWeight { pattern = AttackPattern.NormalAttack, baseWeight = 1f },
+        new AttackPatternWeight { pattern = AttackPattern.Strike, baseWeight = 1f },
+        new AttackPatternWeight { pattern = AttackPattern.UnderSlash, baseWeight = 1f },
+        new AttackPatternWeight { pattern = AttackPattern.UnderPunch, baseWeight = 1f },
+        new AttackPatternWeight { pattern = AttackPattern.LightConcentration, baseWeight = 1f }
     };
 
     private const int lightConcentrationMinStarCount = 4;
     private const int lightConcentrationMaxStarCount = 6;
-    private const int lightConcentrationShotCount = 4;
+    private const int lightConcentrationMinShotCount = 3;
+    private const int lightConcentrationMaxShotCount = 5;
     [Header("References")]
     [SerializeField] private Animator animator;
     [SerializeField] private BossAnimation bossAnimation;
@@ -55,6 +66,13 @@ public class BossController : MonoBehaviour
     [SerializeField] private float maxPatternInterval = 8f;
     [SerializeField] private float betweenPatternMoveDuration = 1.5f;
     [SerializeField] private float facePlayerInterval = 0.1f;
+
+    [Header("Pattern Distance Weights")]
+    [SerializeField, Min(0.01f)] private float patternDistanceThreshold = 5f;
+    [SerializeField, Min(0f)] private float closePatternNearDistanceMultiplier = 2f;
+    [SerializeField, Min(0f)] private float closePatternFarDistanceMultiplier = 0.5f;
+    [SerializeField, Min(0f)] private float distantPatternNearDistanceMultiplier = 0.5f;
+    [SerializeField, Min(0f)] private float distantPatternFarDistanceMultiplier = 2f;
 
     [Header("Normal Attack")]
     [SerializeField] private string normalAttackAnimation = "BossNormalAttack";
@@ -85,6 +103,15 @@ public class BossController : MonoBehaviour
     [SerializeField, Min(0.01f)] private float underSlashAttackHeight = 1f;
     [SerializeField] private LayerMask groundLayer;
     [SerializeField] private float underSlashDamage = 20f;
+
+    [Header("Under Punch")]
+    [SerializeField] private string underPunchAnimation = "BossUnderPunch";
+    [SerializeField, Min(0.01f)] private float underPunchDamage = 20f;
+    [SerializeField, Min(0.01f)] private float underPunchRadius = 0.8f;
+    [SerializeField, Min(0f)] private float underPunchKnockbackImpulse = 20f;
+    [SerializeField, Min(0.01f)] private float underPunchRingDuration = 0.18f;
+    [SerializeField, Min(0.01f)] private float underPunchRingStartRadius = 0.03f;
+    [SerializeField, Min(0.01f)] private float underPunchRingWidth = 0.05f;
 
     [Header("Light Concentration")]
     [SerializeField] private string lightConcentrationAnimation = "BossLightConcentration";
@@ -119,6 +146,10 @@ public class BossController : MonoBehaviour
     private bool strikeEventTriggered;
     private bool isUnderSlashPatternPlaying;
     private bool underSlashEventTriggered;
+    private bool isUnderPunchPatternPlaying;
+    private bool underPunchEventTriggered;
+    private AttackPattern lastPhaseOnePattern;
+    private bool hasLastPhaseOnePattern;
     private Vector3 previousPosition;
     private float facePlayerTimer;
     private SpriteRenderer[] effectRenderers = new SpriteRenderer[0];
@@ -127,9 +158,12 @@ public class BossController : MonoBehaviour
     private SpriteRenderer underSlashEffectRenderer;
     private Color underSlashEffectOriginalColor;
     private Coroutine underSlashEffectFadeRoutine;
+    private GameObject underPunchRingObject;
+    private LineRenderer underPunchRingRenderer;
+    private Coroutine underPunchRingRoutine;
     private readonly List<GameObject> lightConcentrationVisuals = new List<GameObject>();
     private readonly List<PlayerPositionSample> playerPositionHistory = new List<PlayerPositionSample>();
-    private Material lightConcentrationLineMaterial;
+    private Material lineEffectMaterial;
 
     private void Awake()
     {
@@ -187,6 +221,14 @@ public class BossController : MonoBehaviour
         if (battleRoutine != null)
             StopCoroutine(battleRoutine);
 
+        if (underPunchRingRoutine != null)
+            StopCoroutine(underPunchRingRoutine);
+        if (underPunchRingObject != null)
+            Destroy(underPunchRingObject);
+        underPunchRingObject = null;
+        underPunchRingRenderer = null;
+        underPunchRingRoutine = null;
+
         ClearLightConcentrationVisuals();
     }
 
@@ -195,8 +237,8 @@ public class BossController : MonoBehaviour
         if (bossStat != null)
             bossStat.OnDeath -= StopBattle;
 
-        if (lightConcentrationLineMaterial != null)
-            Destroy(lightConcentrationLineMaterial);
+        if (lineEffectMaterial != null)
+            Destroy(lineEffectMaterial);
     }
 
     private IEnumerator BattleRoutine()
@@ -252,6 +294,9 @@ public class BossController : MonoBehaviour
             case AttackPattern.UnderSlash:
                 yield return ExecuteUnderSlashPattern();
                 break;
+            case AttackPattern.UnderPunch:
+                yield return ExecuteUnderPunchPattern();
+                break;
             case AttackPattern.LightConcentration:
                 yield return ExecuteLightConcentrationPattern();
                 break;
@@ -260,9 +305,13 @@ public class BossController : MonoBehaviour
 
     private bool TryChoosePhaseOnePattern(out AttackPattern selectedPattern)
     {
-        float totalWeight = 0f;
-        foreach (AttackPattern pattern in phaseOnePatterns)
-            totalWeight += GetPhaseOnePatternWeight(pattern);
+        bool excludeLastPattern = hasLastPhaseOnePattern;
+        float totalWeight = GetTotalPhaseOnePatternWeight(excludeLastPattern);
+        if (totalWeight <= 0f && excludeLastPattern)
+        {
+            excludeLastPattern = false;
+            totalWeight = GetTotalPhaseOnePatternWeight(excludeLastPattern);
+        }
 
         if (totalWeight <= 0f)
         {
@@ -271,39 +320,73 @@ public class BossController : MonoBehaviour
         }
 
         float randomWeight = Random.value * totalWeight;
-        AttackPattern lastWeightedPattern = default;
-        foreach (AttackPattern pattern in phaseOnePatterns)
+        AttackPattern fallbackPattern = default;
+        foreach (AttackPatternWeight patternWeight in phaseOnePatternWeights)
         {
-            float weight = GetPhaseOnePatternWeight(pattern);
+            float weight = GetPhaseOnePatternWeight(patternWeight, excludeLastPattern);
             if (weight <= 0f)
                 continue;
 
-            lastWeightedPattern = pattern;
+            fallbackPattern = patternWeight.pattern;
             if (randomWeight < weight)
             {
-                selectedPattern = pattern;
+                selectedPattern = patternWeight.pattern;
+                lastPhaseOnePattern = selectedPattern;
+                hasLastPhaseOnePattern = true;
                 return true;
             }
 
             randomWeight -= weight;
         }
 
-        selectedPattern = lastWeightedPattern;
+        selectedPattern = fallbackPattern;
+        lastPhaseOnePattern = selectedPattern;
+        hasLastPhaseOnePattern = true;
         return true;
     }
 
-    private float GetPhaseOnePatternWeight(AttackPattern pattern)
+    private float GetTotalPhaseOnePatternWeight(bool excludeLastPattern)
     {
-        switch (pattern)
+        if (phaseOnePatternWeights == null)
+            return 0f;
+
+        float totalWeight = 0f;
+        foreach (AttackPatternWeight patternWeight in phaseOnePatternWeights)
+            totalWeight += GetPhaseOnePatternWeight(patternWeight, excludeLastPattern);
+
+        return totalWeight;
+    }
+
+    private float GetPhaseOnePatternWeight(AttackPatternWeight patternWeight, bool excludeLastPattern)
+    {
+        if (excludeLastPattern && patternWeight.pattern == lastPhaseOnePattern)
+            return 0f;
+
+        return Mathf.Max(0f, patternWeight.baseWeight) *
+            GetPhaseOnePatternContextMultiplier(patternWeight.pattern);
+    }
+
+    private float GetPhaseOnePatternContextMultiplier(AttackPattern pattern)
+    {
+        if (playerTransform == null)
+            return 1f;
+
+        bool playerIsNear = Mathf.Abs(playerTransform.position.x - transform.position.x)
+            <= patternDistanceThreshold;
+        bool isClosePattern = pattern == AttackPattern.NormalAttack
+            || pattern == AttackPattern.Strike
+            || pattern == AttackPattern.UnderPunch;
+
+        if (isClosePattern)
         {
-            case AttackPattern.NormalAttack:
-            case AttackPattern.Strike:
-            case AttackPattern.UnderSlash:
-            case AttackPattern.LightConcentration:
-                return 1f;
-            default:
-                return 0f;
+            return playerIsNear
+                ? closePatternNearDistanceMultiplier
+                : closePatternFarDistanceMultiplier;
         }
+
+        return playerIsNear
+            ? distantPatternNearDistanceMultiplier
+            : distantPatternFarDistanceMultiplier;
     }
 
     private IEnumerator ExecuteNormalAttackPattern()
@@ -472,7 +555,7 @@ public class BossController : MonoBehaviour
             yield break;
         }
 
-        if (!TryGetLightConcentrationLineMaterial())
+        if (!TryGetLineEffectMaterial())
             yield break;
 
         FacePlayer();
@@ -503,7 +586,8 @@ public class BossController : MonoBehaviour
 
         yield return new WaitForSeconds(lightConcentrationStartupDelay);
 
-        for (int shot = 0; shot < lightConcentrationShotCount; shot++)
+        int shotCount = Random.Range(lightConcentrationMinShotCount, lightConcentrationMaxShotCount + 1);
+        for (int shot = 0; shot < shotCount; shot++)
         {
             if (isDead || isCutscenePlaying || playerTransform == null)
                 break;
@@ -541,7 +625,7 @@ public class BossController : MonoBehaviour
                     damagedTargets);
             }
 
-            if (shot < lightConcentrationShotCount - 1)
+            if (shot < shotCount - 1)
             {
                 float warningDuration = Mathf.Max(0f, lightConcentrationTelegraphDuration);
                 float delayBeforeNextWarning = Mathf.Max(0f, lightConcentrationShotInterval - warningDuration);
@@ -559,6 +643,43 @@ public class BossController : MonoBehaviour
             animator.Play("BossIdle", 0, 0f);
             FacePlayer();
         }
+    }
+
+    private IEnumerator ExecuteUnderPunchPattern()
+    {
+        if (animator == null || string.IsNullOrEmpty(underPunchAnimation) ||
+            !animator.HasState(0, Animator.StringToHash($"Base Layer.{underPunchAnimation}")))
+        {
+            Debug.LogError($"Boss under-punch animation state '{underPunchAnimation}' is missing.", this);
+            yield break;
+        }
+
+        yield return MoveToAttackDistance();
+
+        if (isDead || isCutscenePlaying || playerTransform == null)
+            yield break;
+
+        FacePlayer();
+        isAttackPatternPlaying = true;
+        isUnderPunchPatternPlaying = true;
+        underPunchEventTriggered = false;
+        animator.Play(underPunchAnimation, 0, 0f);
+
+        while (!isDead && !isCutscenePlaying)
+        {
+            AnimatorStateInfo stateInfo = animator.GetCurrentAnimatorStateInfo(0);
+            if (stateInfo.IsName(underPunchAnimation) && stateInfo.normalizedTime >= 1f)
+                break;
+
+            yield return null;
+        }
+
+        if (!isDead && !isCutscenePlaying)
+            animator.Play("BossIdle", 0, 0f);
+
+        isUnderPunchPatternPlaying = false;
+        isAttackPatternPlaying = false;
+        FacePlayer();
     }
 
     private void RecordPlayerPosition()
@@ -618,19 +739,19 @@ public class BossController : MonoBehaviour
         return playerPositionHistory[playerPositionHistory.Count - 1].position;
     }
 
-    private bool TryGetLightConcentrationLineMaterial()
+    private bool TryGetLineEffectMaterial()
     {
-        if (lightConcentrationLineMaterial != null)
+        if (lineEffectMaterial != null)
             return true;
 
         Shader shader = Shader.Find("Sprites/Default");
         if (shader == null)
         {
-            Debug.LogError("Could not find the Sprites/Default shader for light concentration beams.", this);
+            Debug.LogError("Could not find the Sprites/Default shader for line effects.", this);
             return false;
         }
 
-        lightConcentrationLineMaterial = new Material(shader);
+        lineEffectMaterial = new Material(shader);
         return true;
     }
 
@@ -644,7 +765,7 @@ public class BossController : MonoBehaviour
         beam.endWidth = lightConcentrationBeamWidth;
         beam.startColor = Color.yellow;
         beam.endColor = Color.yellow;
-        beam.sharedMaterial = lightConcentrationLineMaterial;
+        beam.sharedMaterial = lineEffectMaterial;
         if (bossSpriteRenderer != null)
         {
             beam.sortingLayerID = bossSpriteRenderer.sortingLayerID;
@@ -691,7 +812,7 @@ public class BossController : MonoBehaviour
         ring.endWidth = lightConcentrationTelegraphWidth;
         ring.startColor = Color.yellow;
         ring.endColor = Color.yellow;
-        ring.sharedMaterial = lightConcentrationLineMaterial;
+        ring.sharedMaterial = lineEffectMaterial;
         if (bossSpriteRenderer != null)
         {
             ring.sortingLayerID = bossSpriteRenderer.sortingLayerID;
@@ -938,6 +1059,140 @@ public class BossController : MonoBehaviour
             0f,
             playerLayer);
         ApplyDamage(hits, new HashSet<IDamageable>(), underSlashDamage);
+    }
+
+    public void BossUnderPunchHit()
+    {
+        if (isDead || isCutscenePlaying || !isUnderPunchPatternPlaying || underPunchEventTriggered)
+            return;
+
+        underPunchEventTriggered = true;
+        Vector2 hitCenter = bossSpriteRenderer != null
+            ? new Vector2(bossSpriteRenderer.bounds.center.x, bossSpriteRenderer.bounds.min.y)
+            : new Vector2(transform.position.x, transform.position.y);
+
+        ShowUnderPunchRing(hitCenter);
+
+        Collider2D[] hits = Physics2D.OverlapCircleAll(hitCenter, underPunchRadius, playerLayer);
+        HashSet<PlayerStat> damagedPlayers = new HashSet<PlayerStat>();
+        foreach (Collider2D hit in hits)
+        {
+            if (hit == null)
+                continue;
+
+            PlayerStat player = hit.GetComponentInParent<PlayerStat>();
+            if (player == null || !damagedPlayers.Add(player))
+                continue;
+
+            player.TakeDamage(underPunchDamage);
+        }
+
+        PlayerStat targetPlayer = playerTransform != null
+            ? playerTransform.GetComponentInParent<PlayerStat>()
+            : FindAnyObjectByType<PlayerStat>();
+        if (targetPlayer != null)
+        {
+            float horizontalOffset = targetPlayer.transform.position.x - transform.position.x;
+            float horizontalDirection = Mathf.Abs(horizontalOffset) > 0.001f
+                ? Mathf.Sign(horizontalOffset)
+                : isFacingLeft ? 1f : -1f;
+
+            Rigidbody2D playerRigidbody = targetPlayer.GetComponent<Rigidbody2D>();
+            targetPlayer.ApplyKnockback(
+                Vector2.right * horizontalDirection * underPunchKnockbackImpulse,
+                playerRigidbody);
+        }
+    }
+
+    private void ShowUnderPunchRing(Vector2 center)
+    {
+        if (!TryGetLineEffectMaterial())
+            return;
+
+        if (underPunchRingRoutine != null)
+            StopCoroutine(underPunchRingRoutine);
+        if (underPunchRingObject != null)
+            Destroy(underPunchRingObject);
+
+        underPunchRingObject = new GameObject("BossUnderPunchRing");
+        underPunchRingRenderer = underPunchRingObject.AddComponent<LineRenderer>();
+        underPunchRingRenderer.useWorldSpace = true;
+        underPunchRingRenderer.loop = true;
+        underPunchRingRenderer.positionCount = 32;
+        underPunchRingRenderer.startWidth = underPunchRingWidth;
+        underPunchRingRenderer.endWidth = underPunchRingWidth;
+        underPunchRingRenderer.startColor = Color.yellow;
+        underPunchRingRenderer.endColor = Color.yellow;
+        underPunchRingRenderer.sharedMaterial = lineEffectMaterial;
+        if (bossSpriteRenderer != null)
+        {
+            underPunchRingRenderer.sortingLayerID = bossSpriteRenderer.sortingLayerID;
+            underPunchRingRenderer.sortingOrder = bossSpriteRenderer.sortingOrder + 2;
+        }
+
+        float expansionRadius = GetUnderPunchRingExpansionRadius(center);
+        underPunchRingRoutine = StartCoroutine(AnimateUnderPunchRing(center, expansionRadius));
+    }
+
+    private float GetUnderPunchRingExpansionRadius(Vector2 center)
+    {
+        Camera effectCamera = Camera.main;
+        if (effectCamera == null)
+            effectCamera = FindAnyObjectByType<Camera>();
+
+        if (effectCamera == null)
+        {
+            Debug.LogWarning("Could not find a camera to size the under-punch ring to the screen.", this);
+            return Mathf.Max(underPunchRadius * 10f, 10f);
+        }
+
+        Vector3 centerPosition = new Vector3(center.x, center.y, transform.position.z);
+        float depth = Vector3.Dot(centerPosition - effectCamera.transform.position, effectCamera.transform.forward);
+        Rect viewport = effectCamera.pixelRect;
+        Vector3 bottomLeft = effectCamera.ScreenToWorldPoint(new Vector3(viewport.xMin, viewport.yMin, depth));
+        Vector3 bottomRight = effectCamera.ScreenToWorldPoint(new Vector3(viewport.xMax, viewport.yMin, depth));
+        Vector3 topLeft = effectCamera.ScreenToWorldPoint(new Vector3(viewport.xMin, viewport.yMax, depth));
+        Vector3 topRight = effectCamera.ScreenToWorldPoint(new Vector3(viewport.xMax, viewport.yMax, depth));
+        float farthestScreenCorner = Mathf.Max(
+            Vector2.Distance(center, bottomLeft),
+            Vector2.Distance(center, bottomRight),
+            Vector2.Distance(center, topLeft),
+            Vector2.Distance(center, topRight));
+        return farthestScreenCorner + Mathf.Max(underPunchRadius, underPunchRingWidth);
+    }
+
+    private IEnumerator AnimateUnderPunchRing(Vector2 center, float expansionRadius)
+    {
+        float duration = Mathf.Max(0.01f, underPunchRingDuration);
+        float elapsed = 0f;
+        while (elapsed < duration && underPunchRingRenderer != null)
+        {
+            float progress = elapsed / duration;
+            float radius = Mathf.Lerp(
+                Mathf.Min(underPunchRingStartRadius, underPunchRadius),
+                expansionRadius,
+                progress);
+            Color color = Color.yellow;
+            color.a = 1f - progress;
+            underPunchRingRenderer.startColor = color;
+            underPunchRingRenderer.endColor = color;
+
+            for (int i = 0; i < underPunchRingRenderer.positionCount; i++)
+            {
+                float angle = 2f * Mathf.PI * i / underPunchRingRenderer.positionCount;
+                Vector3 point = center + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * radius;
+                underPunchRingRenderer.SetPosition(i, point);
+            }
+
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        if (underPunchRingObject != null)
+            Destroy(underPunchRingObject);
+        underPunchRingObject = null;
+        underPunchRingRenderer = null;
+        underPunchRingRoutine = null;
     }
 
     private void CacheUnderSlashEffect()
@@ -1353,6 +1608,8 @@ public class BossController : MonoBehaviour
         isCutscenePlaying = true;
         isAttackPatternPlaying = false;
         normalAttackEventTriggered = false;
+        isUnderPunchPatternPlaying = false;
+        underPunchEventTriggered = false;
         if (battleRoutine != null)
         {
             StopCoroutine(battleRoutine);

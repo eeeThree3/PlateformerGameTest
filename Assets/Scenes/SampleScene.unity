@@ -1764,6 +1764,11 @@ MonoBehaviour:
 
     C: Jump
 
+    F hold: 50 Heal
+
+    (Maximun 3 times)
+
+
 '
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -2967,6 +2972,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b56140046e83dd34b8cc473927f645a9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::BossController
+  phaseOnePatternWeights:
+  - pattern: 0
+    baseWeight: 1
+  - pattern: 1
+    baseWeight: 1
+  - pattern: 2
+    baseWeight: 1
+  - pattern: 3
+    baseWeight: 1
+  - pattern: 4
+    baseWeight: 1
   animator: {fileID: 0}
   bossAnimation: {fileID: 0}
   bossStat: {fileID: 0}
@@ -2991,6 +3007,11 @@ MonoBehaviour:
   maxPatternInterval: 3
   betweenPatternMoveDuration: 1.5
   facePlayerInterval: 0.1
+  patternDistanceThreshold: 5
+  closePatternNearDistanceMultiplier: 2
+  closePatternFarDistanceMultiplier: 0.5
+  distantPatternNearDistanceMultiplier: 0.5
+  distantPatternFarDistanceMultiplier: 2
   normalAttackAnimation: BossNormalAttack
   attackWindow: 0.1
   attackPathRadius: 0.8
@@ -3019,6 +3040,13 @@ MonoBehaviour:
     serializedVersion: 2
     m_Bits: 64
   underSlashDamage: 20
+  underPunchAnimation: BossUnderPunch
+  underPunchDamage: 20
+  underPunchRadius: 0.8
+  underPunchKnockbackImpulse: 60
+  underPunchRingDuration: 0.18
+  underPunchRingStartRadius: 0.03
+  underPunchRingWidth: 0.05
   lightConcentrationAnimation: BossLightConcentration
   lightConcentrationStartupDelay: 2
   lightConcentrationShotInterval: 1
@@ -3333,6 +3361,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::PlayerMove
   groundCheck: {fileID: 1481554030}
   moveSpeed: 6
+  selfHealMoveSpeedMultiplier: 0.8
   jumpForce: 8
   wallCheckDistance: 0.2
   wallSlideSpeed: 2
@@ -3385,6 +3414,7 @@ MonoBehaviour:
   cameraTransform: {fileID: 0}
   spriteRenderer: {fileID: 0}
   playerAttack: {fileID: 1119554863}
+  playerStat: {fileID: 0}
   dashDistance: 5
   dashDuration: 0.15
   dashCooldown: 0.5
