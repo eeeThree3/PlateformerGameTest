@@ -2993,11 +2993,11 @@ MonoBehaviour:
   facePlayerInterval: 0.1
   normalAttackAnimation: BossNormalAttack
   attackWindow: 0.1
-  attackPathRadius: 0.6
+  attackPathRadius: 0.8
   effectRadius: 1
   effectForwardOffset: 1
   effectFadeDuration: 0.35
-  normalAttackDamage: 10
+  normalAttackDamage: 20
   playerLayer:
     serializedVersion: 2
     m_Bits: 256
@@ -3050,8 +3050,6 @@ GameObject:
   - component: {fileID: 1119554863}
   - component: {fileID: 1119554864}
   - component: {fileID: 1119554865}
-  - component: {fileID: 1119554867}
-  - component: {fileID: 1119554866}
   m_Layer: 8
   m_Name: Player
   m_TagString: Untagged
@@ -3312,6 +3310,10 @@ MonoBehaviour:
         m_CallState: 2
     m_ActionId: 115f42bc-b8cf-40f5-9e05-a71c2d9b3f1e
     m_ActionName: 'Player/Attack[/Keyboard/x]'
+  - m_PersistentCalls:
+      m_Calls: []
+    m_ActionId: 369c001a-6427-4e8f-8689-b0fa09299514
+    m_ActionName: 'Player/SelfHeal[/Keyboard/f]'
   m_NeverAutoSwitchControlSchemes: 0
   m_DefaultControlScheme: PC
   m_DefaultActionMap: Player
@@ -3450,96 +3452,6 @@ MonoBehaviour:
   playerStat: {fileID: 1119554859}
   healthSlider: {fileID: 191596597}
   healthText: {fileID: 885267463}
---- !u!114 &1119554866
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1119554845}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 621567455fd1c4ceb811cc8a00b6a1a5, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Unity.InputSystem::UnityEngine.InputSystem.PlayerInputManager
-  m_NotificationBehavior: 0
-  m_MaxPlayerCount: -1
-  m_AllowJoining: 1
-  m_JoinBehavior: 0
-  m_PlayerJoinedEvent:
-    m_PersistentCalls:
-      m_Calls: []
-  m_PlayerLeftEvent:
-    m_PersistentCalls:
-      m_Calls: []
-  m_JoinAction:
-    m_UseReference: 0
-    m_Action:
-      m_Name: 
-      m_Type: 0
-      m_ExpectedControlType: 
-      m_Id: 813b7167-4881-4b17-b032-9c7f076556ac
-      m_Processors: 
-      m_Interactions: 
-      m_SingletonActionBindings: []
-      m_Flags: 0
-      m_Priority: 0
-    m_Reference: {fileID: 0}
-  m_PlayerPrefab: {fileID: 0}
-  m_SplitScreen: 0
-  m_MaintainAspectRatioInSplitScreen: 0
-  m_FixedNumberOfSplitScreens: -1
-  m_SplitScreenRect:
-    serializedVersion: 2
-    x: 0
-    y: 0
-    width: 1
-    height: 1
---- !u!114 &1119554867
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1119554845}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 621567455fd1c4ceb811cc8a00b6a1a5, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Unity.InputSystem::UnityEngine.InputSystem.PlayerInputManager
-  m_NotificationBehavior: 0
-  m_MaxPlayerCount: -1
-  m_AllowJoining: 1
-  m_JoinBehavior: 0
-  m_PlayerJoinedEvent:
-    m_PersistentCalls:
-      m_Calls: []
-  m_PlayerLeftEvent:
-    m_PersistentCalls:
-      m_Calls: []
-  m_JoinAction:
-    m_UseReference: 0
-    m_Action:
-      m_Name: 
-      m_Type: 0
-      m_ExpectedControlType: 
-      m_Id: 07ae2dee-9e3d-4efb-996d-a1d738f824c5
-      m_Processors: 
-      m_Interactions: 
-      m_SingletonActionBindings: []
-      m_Flags: 0
-      m_Priority: 0
-    m_Reference: {fileID: 0}
-  m_PlayerPrefab: {fileID: 0}
-  m_SplitScreen: 0
-  m_MaintainAspectRatioInSplitScreen: 0
-  m_FixedNumberOfSplitScreens: -1
-  m_SplitScreenRect:
-    serializedVersion: 2
-    x: 0
-    y: 0
-    width: 1
-    height: 1
 --- !u!1 &1223421496
 GameObject:
   m_ObjectHideFlags: 0
